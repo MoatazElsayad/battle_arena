@@ -5,6 +5,7 @@
 #indef GAMEMANAGER_H
 
 #include <iostream>
+#include <string>
 using namespace std;
 
 class GameManager{
@@ -20,6 +21,9 @@ public:
 
 GameManager(Player* p, Enemy* e);
 void update();
+void StartGame();
+string endGame();
+void checkWinCondition();
 ~GameManager();
 
 };
