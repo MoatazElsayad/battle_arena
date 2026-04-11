@@ -24,6 +24,7 @@ public:
     static const int KEY_ESC = 27;
 
 public:
+    // GamePage dev: use isPressed(KEY_W), wasJustPressed(KEY_SPACE) for game controls
     InputHandler();
     ~InputHandler() = default;
 

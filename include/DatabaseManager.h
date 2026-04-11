@@ -16,7 +16,10 @@ public:
     ~DatabaseManager() = default;
 
     // Score management
+    // Login page dev: add authenticateUser(username, password) method
     bool saveScore(const std::string& playerName, int score, int level);
+    // Login page dev: implement saveResult() if needed - calls saveScore internally
+    bool saveResult(const std::string& playerName, int score);
     std::vector<ScoreEntry> getTopScores(int limit = 10);
     bool initializeDatabase();
 

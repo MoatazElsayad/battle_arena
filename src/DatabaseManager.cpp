@@ -34,6 +34,11 @@ bool DatabaseManager::saveScore(const std::string& playerName, int score, int le
     return true;
 }
 
+// Login page dev: implement this - calls saveScore with default level
+bool DatabaseManager::saveResult(const std::string& playerName, int score) {
+    return saveScore(playerName, score, 1);
+}
+
 std::vector<ScoreEntry> DatabaseManager::getTopScores(int limit) {
     std::vector<ScoreEntry> result;
     int count = 0;

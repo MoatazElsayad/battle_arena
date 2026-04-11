@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainMenuPage</class>
+ <widget class="QWidget" name="MainMenuPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background: #0f172a;</string>
+  </property>
+  <widget class="QLabel" name="titleLabel">
+   <property name="geometry">
+    <rect>
+     <x>150</x>
+     <y>120</y>
+     <width>300</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font-size: 34px; font-weight: 800; color: #f8fafc;</string>
+   </property>
+   <property name="text">
+    <string>OOP Gladiators</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="subtitleLabel">
+   <property name="geometry">
+    <rect>
+     <x>160</x>
+     <y>180</y>
+     <width>280</width>
+     <height>30</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font-size: 16px; color: #94a3b8;</string>
+   </property>
+   <property name="text">
+    <string>A real-time side-view duel battle game</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="playButton">
+   <property name="geometry">
+    <rect>
+     <x>200</x>
+     <y>280</y>
+     <width>200</width>
+     <height>45</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background: #ea580c; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;</string>
+   </property>
+   <property name="text">
+    <string>Play</string>
+   </property>
+   <property name="minimumWidth">
+    <number>200</number>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>playButton</sender>
+   <signal>clicked()</signal>
+   <receiver>MainMenuPage</receiver>
+   <slot>playClicked()</slot>
+   <hints>
+    <hint type="sgnl">
+     <signal>clicked()</signal>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

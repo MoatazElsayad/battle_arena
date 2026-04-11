@@ -37,7 +37,7 @@ private:
     QWidget* createGameOverPage();
 
     void refreshProfile();
-    void refreshBattleView();
+    void refreshBattleView();  // GamePage dev: call this to update battle display
     void showGameOverPage();
     void updateHighScores();
     QString stateTitle() const;

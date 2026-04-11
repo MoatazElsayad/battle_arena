@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1120</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Battle Arena Demo</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow { background: #0f172a; } QWidget { color: #e2e8f0; font-family: 'Segoe UI'; } QPushButton { background: #ea580c; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600; } QPushButton:hover { background: #f97316; }</string>
+  </property>
+  <widget class="QStackedWidget" name="stackedWidget">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1120</width>
+     <height>720</height>
+    </rect>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

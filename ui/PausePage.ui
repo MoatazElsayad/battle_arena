@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PausePage</class>
+ <widget class="QWidget" name="PausePage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background: #0f172a;</string>
+  </property>
+  <widget class="QLabel" name="titleLabel">
+   <property name="geometry">
+    <rect>
+     <x>230</x>
+     <y>120</y>
+     <width>140</width>
+     <height>50</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">font-size: 34px; font-weight: 800; color: #f8fafc;</string>
+   </property>
+   <property name="text">
+    <string>Paused</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="resumeButton">
+   <property name="geometry">
+    <rect>
+     <x>200</x>
+     <y>220</y>
+     <width>200</width>
+     <height>45</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background: #22c55e; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;</string>
+   </property>
+   <property name="text">
+    <string>Resume</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="menuButton">
+   <property name="geometry">
+    <rect>
+     <x>200</x>
+     <y>275</y>
+     <width>200</width>
+     <height>45</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background: #ea580c; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;</string>
+   </property>
+   <property name="text">
+    <string>Back to Menu</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="settingsButton">
+   <property name="geometry">
+    <rect>
+     <x>200</x>
+     <y>330</y>
+     <width>200</width>
+     <height>45</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">background: #475569; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;</string>
+   </property>
+   <property name="text">
+    <string>Settings</string>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>resumeButton</sender>
+   <signal>clicked()</signal>
+   <receiver>PausePage</receiver>
+   <slot>resumeClicked()</slot>
+   <hints>
+    <hint type="sgnl">
+     <signal>clicked()</signal>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>menuButton</sender>
+   <signal>clicked()</signal>
+   <receiver>PausePage</receiver>
+   <slot>menuClicked()</slot>
+   <hints>
+    <hint type="sgnl">
+     <signal>clicked()</signal>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>settingsButton</sender>
+   <signal>clicked()</signal>
+   <receiver>PausePage</receiver>
+   <slot>settingsClicked()</slot>
+   <hints>
+    <hint type="sgnl">
+     <signal>clicked()</signal>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
