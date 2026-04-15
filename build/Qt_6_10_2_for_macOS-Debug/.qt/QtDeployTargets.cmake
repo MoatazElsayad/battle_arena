@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_Gladiators_FILE /Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/Gladiators)
+set(__QT_DEPLOY_TARGET_Gladiators_TYPE EXECUTABLE)

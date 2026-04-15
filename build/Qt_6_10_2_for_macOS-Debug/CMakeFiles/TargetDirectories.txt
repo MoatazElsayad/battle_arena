@@ -1,0 +1,5 @@
+/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/CMakeFiles/Gladiators.dir
+/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/CMakeFiles/edit_cache.dir
+/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/CMakeFiles/rebuild_cache.dir
+/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/CMakeFiles/Gladiators_autogen_timestamp_deps.dir
+/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/CMakeFiles/Gladiators_autogen.dir

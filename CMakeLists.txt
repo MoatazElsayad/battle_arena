@@ -8,7 +8,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt5 COMPONENTS Widgets REQUIRED)
+find_package(Qt6 COMPONENTS Widgets REQUIRED)
+
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -20,6 +21,8 @@ set(SOURCES
     src/MainWindow.cpp
     src/DatabaseManager.cpp
     src/InputHandler.cpp
+    src/LoginPage.cpp
+    src/registration.cpp
 )
 
 set(HEADERS
@@ -28,5 +31,7 @@ set(HEADERS
     include/InputHandler.h
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
-target_link_libraries(${PROJECT_NAME} Qt5::Widgets)
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS}
+    ui/Registration.ui
+    src/LoginPage.cpp)
+target_link_libraries(${PROJECT_NAME} Qt6::Widgets)

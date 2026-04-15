@@ -1,0 +1,15 @@
+# ninja log v6
+9	45	1775986794408403525	Gladiators_autogen/timestamp	4ea8e2012de282bd
+9	45	1775986794408403525	/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/Gladiators_autogen/mocs_compilation.cpp	4ea8e2012de282bd
+9	45	1775986794408403525	Gladiators_autogen/mocs_compilation.cpp	4ea8e2012de282bd
+442	878	1775986691049168055	CMakeFiles/Gladiators.dir/src/InputHandler.cpp.o	61e2c9495b306a8
+441	883	1775986691049048352	CMakeFiles/Gladiators.dir/src/DatabaseManager.cpp.o	ae1847fbb871869c
+441	1394	1775986691048804112	CMakeFiles/Gladiators.dir/src/main.cpp.o	d6732003e53661d9
+9	45	1775986794408403525	/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/Gladiators_autogen/timestamp	4ea8e2012de282bd
+441	1375	1775986691048586163	CMakeFiles/Gladiators.dir/Gladiators_autogen/mocs_compilation.cpp.o	64288f83e614813f
+3	231	1775988844321352835	build.ninja	f9cb220cdf0bd425
+20	53	1775988844354523241	Gladiators_autogen/timestamp	4ea8e2012de282bd
+20	53	1775988844354523241	Gladiators_autogen/mocs_compilation.cpp	4ea8e2012de282bd
+20	53	1775988844354523241	/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/Gladiators_autogen/timestamp	4ea8e2012de282bd
+20	53	1775988844354523241	/Users/macbookair/battle_arena/build/Qt_6_10_2_for_macOS-Debug/Gladiators_autogen/mocs_compilation.cpp	4ea8e2012de282bd
+53	241	1775988844387482073	CMakeFiles/Gladiators.dir/src/LoginPage.cpp.o	d40fefe5becdd25f
