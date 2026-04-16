@@ -7,6 +7,33 @@
 #define INPUTHANDLER_H
 
 #include <set>
+#include <string>
+#include <vector>
+
+#include "Enums.h"
+
+enum class PlayerAction {
+    MOVE_LEFT,
+    MOVE_RIGHT,
+    ATTACK1,
+    ATTACK2,
+    ATTACK3,
+    JUMP,
+    HEAL,
+    PAUSE
+};
+
+struct CharacterFeatureSet {
+    int featureImageCount;
+    std::vector<std::string> featureNames;
+    int attackOptions;
+    bool canJump;
+    bool canHeal;
+
+    int featureScore() const {
+        return featureImageCount;
+    }
+};
 
 class InputHandler {
 public:
@@ -19,6 +46,10 @@ public:
     static const int KEY_A = 97;   // A key
     static const int KEY_S = 115;  // S key
     static const int KEY_D = 100;  // D key
+    static const int KEY_H = 104;  // H key
+    static const int KEY_J = 106;  // J key
+    static const int KEY_K = 107;  // K key
+    static const int KEY_L = 108;  // L key
     static const int KEY_SPACE = 32;
     static const int KEY_ENTER = 13;
     static const int KEY_ESC = 27;
@@ -35,6 +66,13 @@ public:
     bool wasJustPressed(int k) const;
     void update();  // Call once per frame to update "just pressed" tracking
     void reset();
+
+    static CharacterFeatureSet getCharacterFeatures(CharacterType type);
+    static bool canPerformAction(CharacterType type, PlayerAction action);
+    static int countActionFeatures(CharacterType type);
+    static std::vector<std::string> getCharacterFeatureNames(CharacterType type);
+    static std::string characterTypeToDisplayName(CharacterType type);
+    static std::vector<CharacterType> getCharactersSortedByFeatures();
 
 private:
     std::set<int> keys;         // Currently held keys

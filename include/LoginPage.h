@@ -2,6 +2,7 @@
 #define LOGINPAGE_H
 
 #include <QMainWindow>
+#include <QString>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -17,10 +18,14 @@ public:
     LoginPage(QWidget *parent = nullptr);
     ~LoginPage();
 
+signals:
+    void loginSucceeded(const QString &username);
+
 private slots:
+    void on_LoginButton_clicked();
     void on_SignUpButton_clicked();
 
 private:
     Ui::LoginPage *ui;
 };
-#endif // LOGINEPAGE_H
+#endif // LOGINPAGE_H

@@ -1,100 +1,115 @@
-#include <iostream>
 #include "GameManager.h"
-#include <string>
-using namespace std;
+#include "Player.h"
+#include "Enemy.h"
+#include <cstdlib>
+#include <ctime>
 
-{
-GameManager::GameManager(Player* p,Enemy* e) : player(p), enemy(e), state(GameState::Playing)
-{
-   
-}
-  
-void GameManager::attack()
-
-{
-  float dx = player->getX() - enemy->getX();
-
-
-  if(abs(dx) < 10)
-  {
-    player->attack(enemy);//i visulaize that attack reduces hp and does al
-   
-  }
+GameManager::GameManager(QObject *parent)
+    : QObject(parent),
+      playerName_(""),
+      currentScore_(0),
+      playerLevel_(1),
+      state_(GameState::MENU),
+      player_(nullptr),
+      currentEnemy_(nullptr),
+      selectedCharacterType_(CharacterType::KNIGHT) {
+    if (rand() == 0) srand(time(nullptr)); // seed random once
 }
 
-
-void GameManager::update()
-{
- if (state != PLAYING)
- {
-  return;
- }
-if()//move button is clicked
-{
- player -> move();//but what would determine if he moves right or left(i think there should be move left or more right)
+GameManager::~GameManager() {
+    delete player_;
+    delete currentEnemy_;
 }
 
- enemy->updateAI(player);
- if()//attack button is clicked
- {
-    attack();
- }
- if((player->isAlive() == false || !(enemy->isAlive()) == false)
- {
-  state = GAME_OVER;
-  endgame();
- }
-
+void GameManager::startGame(const std::string &playerName, CharacterType charType) {
+    playerName_ = playerName;
+    selectedCharacterType_ = charType;
+    currentScore_ = 0;
+    playerLevel_ = 1;
+    state_ = GameState::PLAYING;
+    
+    // Create or reset player
+    if (!player_) {
+        // Stats vary by character type
+        int hp = 100;
+        int atk = 15;
+        switch (charType) {
+            case CharacterType::KNIGHT:
+            case CharacterType::MEDIEVAL_WARRIOR:
+                hp = 120; atk = 12; break;
+            case CharacterType::WIZARD:
+                hp = 70; atk = 20; break;
+            case CharacterType::ARCEN:
+                hp = 80; atk = 18; break;
+            case CharacterType::DEMON_SLAYER:
+                hp = 110; atk = 16; break;
+            case CharacterType::HUNTRESS:
+                hp = 85; atk = 17; break;
+            case CharacterType::MARTIAL:
+            case CharacterType::MARTIAL_HERO:
+                hp = 100; atk = 15; break;
+            case CharacterType::FANTASY_WARRIOR:
+                hp = 105; atk = 14; break;
+            default:
+                hp = 100; atk = 15;
+        }
+        player_ = new Player(hp, hp, 150, 400, 200, atk, charType);
+        player_->setName(playerName);
+    } else {
+        player_->setCharacterType(charType);
+        player_->takeDamage(-player_->getMaxHealth()); // Full heal
+    }
+    
+    // Create enemy
+    delete currentEnemy_;
+    currentEnemy_ = new Enemy(80, 80, 700, 400, 150, 12);
+    currentEnemy_->setName("Flying Demon");
 }
 
-void GameManager::StartGame()
-{
-  this->state = PLAYING;
-  player->setx(-50);
-  enemy->setx(50);
-  if(player->type == TANK)
-  {
-    player->setStats(TANK);
-  }
-  else if(player->type == FAST)
-  {
-    player->setStats(FAST);
-  }
-  else if(player->type == BALANCED)
-  {
-    player->setStats(BALANCED);
-  }
+void GameManager::finishBattle() {
+    if (state_ == GameState::PLAYING) {
+        state_ = GameState::GAME_OVER;
+        emit battleFinished();
+    }
 }
 
-string GameManager::endGame();
-{
-   checkWinCondition();
+void GameManager::addScore(int amount) {
+    if (amount <= 0) {
+        return;
+    }
+
+    currentScore_ += amount;
+    playerLevel_ = 1 + (currentScore_ / 100);
 }
 
-
-void GameManager::checkWinCondition()
-{
-    if(player->isAlive() && !(enemy->isAlive()))
-  {
-     cout << "You Won!"
-
-  }
-  else if(!(player->isAlive()) && !(enemy->isAlive()))
-  {
-     cout << "You Lost!"
-  }
-  else if((player->isAlive()) && (enemy->isAlive()))
-  {
-      cout << "Draw"//due to time finished while no one defeated the other
-  }
+int GameManager::getCurrentScore() const {
+    return currentScore_;
 }
 
-
-
-GameManager::~GameManager(){
-
-  cout << "GameManager destructor is called";
-
+int GameManager::getPlayerLevel() const {
+    return playerLevel_;
 }
 
-}// GameManager.cpp - Game manager implementation// GameManager.cpp - Game manager implementation
+std::string GameManager::getBattleTitle() const {
+    if (playerName_.empty()) {
+        return "Battle";
+    }
+
+    return playerName_ + "'s Battle";
+}
+
+GameState GameManager::getState() const {
+    return state_;
+}
+
+CharacterType GameManager::getSelectedCharacterType() const {
+    return selectedCharacterType_;
+}
+
+Player* GameManager::getPlayer() const {
+    return player_;
+}
+
+Enemy* GameManager::getCurrentEnemy() const {
+    return currentEnemy_;
+}

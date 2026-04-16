@@ -1,56 +1,23 @@
 // Player.cpp - Player implementation
 #include "Player.h"
-#include "Qt"
 
-Player::Player(PlayerType t, InputHandler* input)
-    : Character(100, 0, 5, 10), // hp, x, speed, attackPower
-    score(0),
-    type(t),
-    input(input)
-{
-    setStats();
-}
+Player::Player(int hp, int maxHp, float x, float y, float speed, int attackPower, CharacterType type)
+    : Character(hp, maxHp, x, y, speed, attackPower),
+      score(0),
+    input(nullptr),
+    characterType_(type),
+    features_(InputHandler::getCharacterFeatures(type)) {}
 
-void Player::setStats() {
-    switch (type) {
-    case TANK:
-        maxHp = 150;
-        hp = 150;
-        speed = 3;
-        attackPower = 8;
-        break;
-
-    case FAST:
-        maxHp = 80;
-        hp = 80;
-        speed = 7;
-        attackPower = 6;
-        break;
-
-    case BALANCED:
-        maxHp = 100;
-        hp = 100;
-        speed = 5;
-        attackPower = 10;
-        break;
-    }
-}
+Player::~Player() {}
 
 void Player::move() {
-    if (!input) return;
-
-    if (input->isKeyPressed(Qt::Key_Left)) {
-        x -= speed;
-    }
-
-    if (input->isKeyPressed(Qt::Key_Right)) {
-        x += speed;
-    }
+    // Movement controlled by BattleWidget via InputHandler
 }
 
 void Player::attack(Character* target) {
     if (target && target->isAlive()) {
-        target->takeDamage(attackPower);
+        int damage = calculateDamage();
+        target->takeDamage(damage);
     }
 }
 
@@ -60,4 +27,9 @@ void Player::addScore(int s) {
 
 int Player::getScore() const {
     return score;
+}
+
+void Player::setCharacterType(CharacterType type) {
+    characterType_ = type;
+    features_ = InputHandler::getCharacterFeatures(type);
 }

@@ -4,26 +4,25 @@
 
 #include "Character.h"
 #include "InputHandler.h"
-
-enum PlayerType {
-	TANK,
-	FAST,
-	BALANCED
-};
+#include "Enums.h"
 
 class Player : public Character {
 private:
 	int score;
-	PlayerType type;
 	InputHandler* input;
-
-	void setStats();
+	CharacterType characterType_;
+	CharacterFeatureSet features_;
 
 public:
-	Player(PlayerType t, InputHandler* input);
+	Player(int hp, int maxHp, float x, float y, float speed, int attackPower, CharacterType type = CharacterType::KNIGHT);
+	~Player();
 
 	void move() override;
 	void attack(Character* target) override;
+	float getX() const { return x; }
+	CharacterType getCharacterType() const { return characterType_; }
+	CharacterFeatureSet getFeatures() const { return features_; }
+	void setCharacterType(CharacterType type);
 
 	void addScore(int s);
 	int getScore() const;
