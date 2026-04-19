@@ -1,9 +1,12 @@
 #include "Enemy.h"
 #include <cmath>
 
-Enemy::Enemy(int hp, int maxHp, float x, float y, float speed, int attackPower)
-    : Character(hp, maxHp, x, y, speed, attackPower),
-      attackCooldown(0) {}
+Enemy::Enemy(CharacterType type, const std::string& name, int hp, int maxHp, float x, float y, float speed, int attackPower)
+    : Character(hp, maxHp, x, y, speed, attackPower) {
+    type_ = type;
+    name_ = name;
+    attackCooldown = 0;
+}
 
 Enemy::~Enemy() {}
 

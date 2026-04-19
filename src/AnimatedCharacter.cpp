@@ -11,6 +11,7 @@ AnimatedCharacter::AnimatedCharacter(QObject *parent)
     , m_isDead(false)
     , m_isTransitioning(false)
     , m_animationTimer(new QTimer(this))
+    , m_facingLeft(false)
 {
     connect(m_animationTimer, &QTimer::timeout, this, &AnimatedCharacter::advanceFrame);
 }

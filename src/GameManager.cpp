@@ -62,8 +62,7 @@ void GameManager::startGame(const std::string &playerName, CharacterType charTyp
     
     // Create enemy
     delete currentEnemy_;
-    currentEnemy_ = new Enemy(80, 80, 700, 400, 150, 12);
-    currentEnemy_->setName("Flying Demon");
+    currentEnemy_ = new Enemy(CharacterType::FLYING_DEMON, "Flying Demon", 80, 80, 700, 400, 150, 12);
 }
 
 void GameManager::finishBattle() {

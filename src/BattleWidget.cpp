@@ -6,6 +6,8 @@
 #include "AnimationManager.h"
 #include "InputHandler.h"
 #include <QPainter>
+#include <QPainterPath>
+#include <QLinearGradient>
 #include <QKeyEvent>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -14,6 +16,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QImage>
 
 namespace {
 QString resolveAssetPath(const QString& relativePath) {
@@ -30,6 +33,39 @@ QString resolveAssetPath(const QString& relativePath) {
         }
     }
     return QString();
+}
+
+QRect opaqueBounds(const QPixmap& px) {
+    if (px.isNull()) {
+        return QRect();
+    }
+
+    const QImage img = px.toImage().convertToFormat(QImage::Format_ARGB32);
+    const int w = img.width();
+    const int h = img.height();
+
+    int minX = w;
+    int minY = h;
+    int maxX = -1;
+    int maxY = -1;
+
+    for (int y = 0; y < h; ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            if (qAlpha(row[x]) > 0) {
+                minX = qMin(minX, x);
+                minY = qMin(minY, y);
+                maxX = qMax(maxX, x);
+                maxY = qMax(maxY, y);
+            }
+        }
+    }
+
+    if (maxX < minX || maxY < minY) {
+        return QRect(0, 0, w, h);
+    }
+
+    return QRect(minX, minY, maxX - minX + 1, maxY - minY + 1);
 }
 }
 
@@ -51,18 +87,28 @@ BattleWidget::BattleWidget(QWidget *parent)
       enemyCooldown_(0.0),
       healCooldown_(0.0),
       battleEndDelay_(0.0),
+    introLockTime_(0.0),
       playerX_(PLAYER_START_X),
       enemyX_(ENEMY_START_X),
       playerHeight_(0.0),
       enemyHeight_(0.0),
+    arcenProjectileActive_(false),
+    arcenProjectileFacingRight_(true),
+    arcenProjectileDamage_(0),
+    arcenProjectileX_(0.0),
+    arcenProjectileY_(0.0),
+    arcenProjectileSpeed_(900.0),
+    arcenProjectileAnimTime_(0.0),
+    arcenProjectileFrame_(0),
       statusMessage_("Press A/D to move, J to attack, H to heal, ESC to pause"),
       statusDisplayTime_(0.0),
       queuedPlayerAttackState_(AnimationState::ATTACK1),
       playerHpDisplay_(1.0),
       enemyHpDisplay_(1.0),
       score_(0) {
-    
-    setStyleSheet("QWidget { background-color: #2A1810; }");
+
+    arenaBackgroundPlaceholder_ = QPixmap(resolveAssetPath("assets/ui/arena_background_placeholder.png"));
+    setStyleSheet("QWidget { background-color: #22140D; }");
     setFocusPolicy(Qt::StrongFocus);
     
     // Initialize animation managers
@@ -77,6 +123,74 @@ BattleWidget::BattleWidget(QWidget *parent)
 BattleWidget::~BattleWidget() {
     delete playerAnimManager_;
     delete enemyAnimManager_;
+}
+
+double BattleWidget::groundY() const {
+    const double arenaBottom = qMax(140.0, static_cast<double>(height()) - 54.0);
+    return arenaBottom - ARENA_FLOOR_OFFSET;
+}
+
+void BattleWidget::drawArenaBackground(QPainter &painter) {
+    painter.save();
+
+    const QRect fullRect = rect();
+    QLinearGradient skyGradient(fullRect.topLeft(), QPointF(fullRect.left(), fullRect.bottom()));
+    skyGradient.setColorAt(0.0, QColor("#120B08"));
+    skyGradient.setColorAt(0.38, QColor("#2A1810"));
+    skyGradient.setColorAt(0.72, QColor("#4C2F1B"));
+    skyGradient.setColorAt(1.0, QColor("#24150E"));
+    painter.fillRect(fullRect, skyGradient);
+
+    const QRectF upperGlow(0.0, 0.0, width(), height() * 0.35);
+    QLinearGradient glowGradient(upperGlow.topLeft(), upperGlow.bottomLeft());
+    glowGradient.setColorAt(0.0, QColor(255, 210, 120, 30));
+    glowGradient.setColorAt(1.0, QColor(255, 210, 120, 0));
+    painter.fillRect(upperGlow, glowGradient);
+
+    if (!arenaBackgroundPlaceholder_.isNull()) {
+        painter.setOpacity(0.2);
+        painter.drawPixmap(fullRect, arenaBackgroundPlaceholder_);
+        painter.setOpacity(1.0);
+    } else {
+        painter.setPen(QPen(QColor(255, 220, 160, 18), 2, Qt::DashLine));
+        const QRect placeholderRect(46, 96, width() - 92, height() - 188);
+        painter.drawRoundedRect(placeholderRect, 28, 28);
+
+        QFont placeholderFont("Segoe UI", 16, QFont::DemiBold);
+        painter.setFont(placeholderFont);
+        painter.setPen(QColor(255, 225, 170, 42));
+        painter.drawText(placeholderRect, Qt::AlignCenter,
+                         "Arena Background Placeholder\nDrop your background image here later");
+    }
+
+    const QRectF crowdBand(0.0, height() * 0.18, width(), height() * 0.18);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(15, 8, 5, 110));
+    for (int i = 0; i < 18; ++i) {
+        const qreal w = 40 + (i % 4) * 22;
+        const qreal h = 26 + (i % 3) * 10;
+        const qreal x = (width() / 18.0) * i - 12;
+        const qreal y = crowdBand.bottom() - h + ((i % 2) ? 6 : 0);
+        painter.drawEllipse(QRectF(x, y, w, h));
+    }
+
+    const double floorY = groundY();
+    const QRectF floorRect(0.0, floorY - 6.0, width(), height() - floorY + 6.0);
+    QLinearGradient floorGradient(floorRect.topLeft(), floorRect.bottomLeft());
+    floorGradient.setColorAt(0.0, QColor("#6A4528"));
+    floorGradient.setColorAt(0.45, QColor("#4E311D"));
+    floorGradient.setColorAt(1.0, QColor("#26170F"));
+    painter.fillRect(floorRect, floorGradient);
+
+    painter.setPen(QPen(QColor("#C9A35A"), 3));
+    painter.drawLine(QPointF(0.0, floorY), QPointF(width(), floorY));
+
+    painter.setPen(QPen(QColor(255, 230, 180, 28), 1));
+    for (int i = 0; i < width(); i += 56) {
+        painter.drawLine(QPointF(i, floorY + 18), QPointF(i + 36, floorY + 40));
+    }
+
+    painter.restore();
 }
 
 void BattleWidget::setGameManager(GameManager *gm) {
@@ -100,10 +214,13 @@ void BattleWidget::startBattle() {
     
     battleActive_ = true;
     battleEndDelay_ = 0.0;
+    introLockTime_ = 0.9; // Keep fighters at their spawn points briefly.
     playerCooldown_ = 0.0;
     enemyCooldown_ = 1.0; // Enemy starts with slight delay
-    playerX_ = PLAYER_START_X;
-    enemyX_ = ENEMY_START_X;
+    const double arenaLeft = ARENA_LEFT_X + 70.0;
+    const double arenaRight = qMax(arenaLeft + 220.0, double(width()) - ARENA_RIGHT_MARGIN - 70.0);
+    playerX_ = arenaLeft;
+    enemyX_ = arenaRight;
     statusMessage_ = "Battle started!";
     statusDisplayTime_ = 2.0;
     
@@ -121,7 +238,8 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
     
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.fillRect(rect(), QColor("#2A1810"));
+    drawArenaBackground(painter);
+    const double floorY = groundY();
     
     if (!gameManager_ || !gameManager_->getPlayer() || !gameManager_->getCurrentEnemy()) {
         painter.setPen(QColor("#D4AF37"));
@@ -129,23 +247,16 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
         return;
     }
     
-    // Draw arena background
-    painter.fillRect(50, 80, width() - 100, height() - 160, QColor("#3D2817"));
-    painter.setPen(QPen(QColor("#D4AF37"), 3));
-    painter.drawRect(50, 80, width() - 100, height() - 160);
-    
-    // Draw ground line
-    painter.setPen(QPen(QColor("#8B7355"), 2));
-    painter.drawLine(50, GROUND_Y, width() - 50, GROUND_Y);
-    
     const Player *player = gameManager_->getPlayer();
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     
 // Draw fighters with animation support - Draw enemy first so player is on top
-    drawFighterWithAnimation(painter, enemyX_, GROUND_Y, enemy->getHealth(), enemy->getMaxHealth(),
+    drawFighterWithAnimation(painter, enemyX_, floorY, enemy->getHealth(), enemy->getMaxHealth(),
                              QString::fromStdString(enemy->getName()), enemyAnimChar_, false);
-    drawFighterWithAnimation(painter, playerX_, GROUND_Y, player->getHealth(), player->getMaxHealth(),
+    drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
                              QString::fromStdString(player->getName()), playerAnimChar_, true);
+
+    drawArcenProjectile(painter);
     
     // Draw HUD and status
     drawHUD(painter);
@@ -206,14 +317,29 @@ void BattleWidget::drawHealthBar(QPainter &painter, double x, double y, int hp, 
 }
 
 void BattleWidget::drawStatus(QPainter &painter) {
-    painter.setPen(QColor("#FFD700"));
     QFont font = painter.font();
     font.setPointSize(11);
     font.setBold(true);
     painter.setFont(font);
-    
-    painter.drawText(50, 50, width() - 100, 25, Qt::AlignCenter, statusMessage_);
-    
+
+    const QString text = statusMessage_.trimmed();
+    if (!text.isEmpty()) {
+        QFontMetrics metrics(font);
+        const int pillWidth = qMin(width() - 160, metrics.horizontalAdvance(text) + 48);
+        const QRect statusRect((width() - pillWidth) / 2, 108, pillWidth, 34);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(18, 10, 6, 215));
+        painter.drawRoundedRect(statusRect, 17, 17);
+
+        painter.setPen(QPen(QColor("#D4AF37"), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(statusRect.adjusted(1, 1, -1, -1), 16, 16);
+
+        painter.setPen(QColor("#FFD700"));
+        painter.drawText(statusRect, Qt::AlignCenter, text);
+    }
+
     // Instructions
     font.setPointSize(9);
     font.setBold(false);
@@ -356,6 +482,7 @@ void BattleWidget::advanceFrame() {
     enemyCooldown_ = qMax(0.0, enemyCooldown_ - dt);
     healCooldown_ = qMax(0.0, healCooldown_ - dt);
     statusDisplayTime_ = qMax(0.0, statusDisplayTime_ - dt);
+    introLockTime_ = qMax(0.0, introLockTime_ - dt);
     
     // Lerp HP display
     const Player *p = gameManager_->getPlayer();
@@ -372,8 +499,10 @@ void BattleWidget::advanceFrame() {
     // Player movement
     updatePlayerMovement(dt);
     
-    // Enemy AI
-    updateEnemyAI(dt);
+    // Enemy AI (delay movement briefly so characters don't immediately collapse to center)
+    if (introLockTime_ <= 0.0) {
+        updateEnemyAI(dt);
+    }
     
     // Combat
     if (healPressed_) {
@@ -388,6 +517,8 @@ void BattleWidget::advanceFrame() {
     if (enemyCooldown_ <= 0.0) {
         tryEnemyAttack(dt);
     }
+
+    updateArcenProjectile(dt);
     
     update();
 }
@@ -396,10 +527,10 @@ void BattleWidget::updatePlayerMovement(double dt) {
     double moveAmount = MOVE_SPEED * dt;
     
     if (movingLeft_) {
-        playerX_ = qMax(60.0, playerX_ - moveAmount);
+        playerX_ = qMax(ARENA_LEFT_X + 10.0, playerX_ - moveAmount);
     }
     if (movingRight_) {
-        playerX_ = qMin(double(width()) - 60.0, playerX_ + moveAmount);
+        playerX_ = qMin(double(width()) - ARENA_RIGHT_MARGIN - 10.0, playerX_ + moveAmount);
     }
 
     if (playerAnimChar_) {
@@ -464,6 +595,28 @@ void BattleWidget::tryPlayerAttack(double dt) {
     // Trigger player attack animation regardless of distance
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(queuedPlayerAttackState_);
+    }
+
+    const CharacterType playerType = gameManager_ ? gameManager_->getSelectedCharacterType() : CharacterType::KNIGHT;
+    if (playerType == CharacterType::ARCEN) {
+        int damage = player->calculateDamage();
+        if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
+            damage = static_cast<int>(damage * 1.2);
+        } else if (queuedPlayerAttackState_ == AnimationState::ATTACK3) {
+            damage = static_cast<int>(damage * 1.35);
+        }
+
+        if (!arcenProjectileActive_) {
+            spawnArcenProjectile(damage);
+            statusMessage_ = "Arrow fired!";
+            statusDisplayTime_ = 0.7;
+        } else {
+            statusMessage_ = "Arrow already in flight";
+            statusDisplayTime_ = 0.7;
+        }
+
+        playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
+        return;
     }
 
     double distToEnemy = std::abs(enemyX_ - playerX_);
@@ -554,32 +707,172 @@ void BattleWidget::tryEnemyAttack(double dt) {
     }
 }
 
+void BattleWidget::loadCharacterAnimations(CharacterType type) {
+    if (!playerAnimManager_) return;
+
+    playerFallbackSprite_ = QPixmap();
+    arcenArrowSprite_ = QPixmap();
+    arcenArrowMoveSprite_ = QPixmap();
+    QString basePath;
+
+    // Determine character folder and animation parameters
+    switch (type) {
+        case CharacterType::KNIGHT:
+            basePath = resolveAssetPath("assets/players/Knight/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 7, basePath + "/IDLE.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/RUN.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/ATTACK 1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/ATTACK 2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/ATTACK 3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 12, basePath + "/DEATH.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 90);
+            break;
+
+        case CharacterType::DEMON_SLAYER:
+            basePath = resolveAssetPath("assets/players/Demon_Slayer/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 4, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 4, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 4, basePath + "/Attack2.png", false, 60); // Reuse Attack2
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case CharacterType::FANTASY_WARRIOR:
+            basePath = resolveAssetPath("assets/players/Fantasy_Warrior/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 7, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 7, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case CharacterType::HUNTRESS:
+            basePath = resolveAssetPath("assets/players/Huntress/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 5, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 7, basePath + "/Attack3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 8, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case CharacterType::ARCEN:
+            basePath = resolveAssetPath("assets/players/Arcen/Sprites/Character");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/Attack.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 10, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
+            arcenArrowSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Static.png"));
+            arcenArrowMoveSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Move.png"));
+            break;
+
+        case CharacterType::MARTIAL:
+            basePath = resolveAssetPath("assets/players/Martial/Sprite");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 7, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 9, basePath + "/Attack3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 11, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take Hit.png", false, 90);
+            break;
+
+        case CharacterType::MARTIAL_HERO:
+            basePath = resolveAssetPath("assets/players/Martial_Hero/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/Attack2.png", false, 60); // Reuse Attack2
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 6, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Take Hit.png", false, 90);
+            break;
+
+        case CharacterType::MEDIEVAL_WARRIOR:
+            basePath = resolveAssetPath("assets/players/Medieval_Warrior/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 6, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 4, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 5, basePath + "/Attack3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 9, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
+            break;
+
+        case CharacterType::WIZARD:
+            basePath = resolveAssetPath("assets/players/Wizard/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 6, basePath + "/Idle.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, basePath + "/Attack1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, basePath + "/Attack2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack2.png", false, 60); // Reuse Attack2
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Hit.png", false, 90);
+            break;
+
+        default:
+            // Default to Knight
+            basePath = resolveAssetPath("assets/players/Knight/Sprites");
+            playerAnimManager_->loadAnimation(AnimationState::IDLE, 7, basePath + "/IDLE.png", true, 150);
+            playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/RUN.png", true, 95);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/ATTACK 1.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/ATTACK 2.png", false, 70);
+            playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/ATTACK 3.png", false, 60);
+            playerAnimManager_->loadAnimation(AnimationState::DEATH, 12, basePath + "/DEATH.png", false, 110);
+            playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 90);
+            break;
+    }
+
+    // Load fallback idle frame for smooth display
+    QString idlePath;
+    int idleFrames = 7; // Default
+    switch (type) {
+        case CharacterType::KNIGHT: idlePath = basePath + "/IDLE.png"; idleFrames = 7; break;
+        case CharacterType::DEMON_SLAYER: idlePath = basePath + "/Idle.png"; idleFrames = 4; break;
+        case CharacterType::FANTASY_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case CharacterType::HUNTRESS: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case CharacterType::ARCEN: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case CharacterType::MARTIAL: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case CharacterType::MARTIAL_HERO: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case CharacterType::MEDIEVAL_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case CharacterType::WIZARD: idlePath = basePath + "/Idle.png"; idleFrames = 6; break;
+        default: break;
+    }
+
+    QPixmap idleSheet(idlePath);
+    if (!idleSheet.isNull()) {
+        const int frameWidth = idleSheet.width() / idleFrames;
+        playerFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
+    }
+}
+
 void BattleWidget::loadPrototypeAnimations() {
-    if (!playerAnimManager_ || !enemyAnimManager_) {
+    if (!playerAnimManager_ || !enemyAnimManager_ || !gameManager_) {
         return;
     }
 
-    const QString knightBase = resolveAssetPath("../../Battle_Arena/assets/Knight 2D Pixel Art/Sprites/with_outline");
+    const Player *player = gameManager_->getPlayer();
+    if (!player) return;
+
+    arcenProjectileActive_ = false;
+    arcenProjectileDamage_ = 0;
+    arcenProjectileAnimTime_ = 0.0;
+    arcenProjectileFrame_ = 0;
+
+    // Load player animations based on selected character
+    loadCharacterAnimations(player->getCharacterType());
+
+    // Enemy is always Flying Demon
     const QString flyingDemonBase = resolveAssetPath("../../Battle_Arena/assets/Flying Demon 2D Pixel Art/Sprites/with_outline");
-
-    playerFallbackSprite_ = QPixmap();
     enemyFallbackSprite_ = QPixmap();
-
-    if (!knightBase.isEmpty()) {
-        playerAnimManager_->loadAnimation(AnimationState::IDLE, 7, knightBase + "/IDLE.png", true, 150);
-        playerAnimManager_->loadAnimation(AnimationState::RUN, 8, knightBase + "/RUN.png", true, 95);
-        playerAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, knightBase + "/ATTACK 1.png", false, 60);
-        playerAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, knightBase + "/ATTACK 2.png", false, 70);
-        playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, knightBase + "/ATTACK 3.png", false, 60);
-        playerAnimManager_->loadAnimation(AnimationState::DEATH, 12, knightBase + "/DEATH.png", false, 110);
-        playerAnimManager_->loadAnimation(AnimationState::HURT, 4, knightBase + "/HURT.png", false, 90); // Fixed: Knight HURT is 4 frames
-
-        QPixmap knightIdle(knightBase + "/IDLE.png");
-        if (!knightIdle.isNull()) {
-            const int frameWidth = knightIdle.width() / 7; // Fixed: Knight IDLE is 7 frames from Lobby
-            playerFallbackSprite_ = knightIdle.copy(0, 0, frameWidth, knightIdle.height());
-        }
-    }
 
     if (!flyingDemonBase.isEmpty()) {
         enemyAnimManager_->loadAnimation(AnimationState::IDLE, 4, flyingDemonBase + "/IDLE.png", true, 180);
@@ -598,50 +891,268 @@ void BattleWidget::loadPrototypeAnimations() {
     }
 }
 
+void BattleWidget::spawnArcenProjectile(int damage) {
+    arcenProjectileActive_ = true;
+    arcenProjectileDamage_ = qMax(1, damage);
+    arcenProjectileFacingRight_ = enemyX_ >= playerX_;
+    arcenProjectileAnimTime_ = 0.0;
+    arcenProjectileFrame_ = 0;
+
+    const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
+    const qreal desiredPlayerHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    arcenProjectileY_ = groundY() - desiredPlayerHeight * ARCEN_ARROW_LAUNCH_HEIGHT_RATIO;
+    arcenProjectileX_ = playerX_ + (arcenProjectileFacingRight_ ? 45.0 : -45.0);
+}
+
+void BattleWidget::updateArcenProjectile(double dt) {
+    if (!arcenProjectileActive_) {
+        return;
+    }
+
+    arcenProjectileAnimTime_ += dt;
+    if (arcenProjectileAnimTime_ >= 0.08) {
+        arcenProjectileAnimTime_ = 0.0;
+        arcenProjectileFrame_ = (arcenProjectileFrame_ + 1) % 2;
+    }
+
+    const double dir = arcenProjectileFacingRight_ ? 1.0 : -1.0;
+    arcenProjectileX_ += dir * arcenProjectileSpeed_ * dt;
+
+    if (arcenProjectileX_ < ARENA_LEFT_X || arcenProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
+        arcenProjectileActive_ = false;
+        return;
+    }
+
+    if (!gameManager_) {
+        arcenProjectileActive_ = false;
+        return;
+    }
+
+    Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+    if (!enemy || !enemy->isAlive()) {
+        arcenProjectileActive_ = false;
+        return;
+    }
+
+    const double hitDistance = std::abs(arcenProjectileX_ - enemyX_);
+    if (hitDistance <= ARCEN_PROJECTILE_HIT_WIDTH) {
+        enemy->takeDamage(arcenProjectileDamage_);
+        score_ += arcenProjectileDamage_ * 10;
+
+        if (enemyAnimChar_) {
+            enemyAnimChar_->takeDamage();
+        }
+
+        statusMessage_ = QString("Arrow hit! Dealt %1 damage!").arg(arcenProjectileDamage_);
+        statusDisplayTime_ = 1.0;
+
+        if (!enemy->isAlive()) {
+            statusMessage_ = "Victory! Enemy defeated!";
+            statusDisplayTime_ = 3.0;
+            if (enemyAnimChar_) {
+                enemyAnimChar_->kill();
+            }
+        }
+
+        arcenProjectileActive_ = false;
+        arcenProjectileDamage_ = 0;
+    }
+}
+
+void BattleWidget::drawArcenProjectile(QPainter &painter) {
+    if (!arcenProjectileActive_) {
+        return;
+    }
+
+    QPixmap spriteSheet = arcenArrowMoveSprite_.isNull() ? arcenArrowSprite_ : arcenArrowMoveSprite_;
+    if (spriteSheet.isNull()) {
+        return;
+    }
+
+    QPixmap sprite;
+    if (!arcenArrowMoveSprite_.isNull()) {
+        const int frameWidth = qMax(1, spriteSheet.width() / 2);
+        const int frameHeight = spriteSheet.height();
+        const int x = qBound(0, arcenProjectileFrame_ * frameWidth, spriteSheet.width() - frameWidth);
+        sprite = spriteSheet.copy(x, 0, frameWidth, frameHeight);
+    } else {
+        sprite = spriteSheet;
+    }
+
+    const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
+    const qreal desiredPlayerHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    QPixmap arcenReferenceFrame;
+    if (playerAnimManager_) {
+        arcenReferenceFrame = playerAnimManager_->getFrame(AnimationState::IDLE, 0);
+    }
+
+    if (arcenReferenceFrame.isNull()) {
+        arcenReferenceFrame = sprite;
+    }
+
+    const QRect referenceBounds = opaqueBounds(arcenReferenceFrame);
+    const qreal referenceVisibleHeight = qMax(1, referenceBounds.height());
+    const qreal scale = desiredPlayerHeight / referenceVisibleHeight;
+    const qreal w = sprite.width() * scale;
+    const qreal h = sprite.height() * scale;
+
+    painter.save();
+    if (!arcenProjectileFacingRight_) {
+        painter.translate(arcenProjectileX_, 0.0);
+        painter.scale(-1.0, 1.0);
+        painter.translate(-arcenProjectileX_, 0.0);
+    }
+
+    painter.drawPixmap(QRectF(arcenProjectileX_ - w * 0.5, arcenProjectileY_ - h * 0.5, w, h),
+                       sprite, QRectF(0, 0, sprite.width(), sprite.height()));
+    painter.restore();
+}
+
 void BattleWidget::drawHUD(QPainter &painter) {
-    const int hudY = 30;
-    const int barWidth = 300;
-    const int barHeight = 25;
-    
-    // Player Health Bar (Top Left)
-    QRect pBarRect(50, hudY, barWidth, barHeight);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor("#444444")); // Background
-    painter.drawRect(pBarRect);
-    
-    QRect pFillRect(50, hudY, static_cast<int>(barWidth * playerHpDisplay_), barHeight);
-    painter.setBrush(QColor("#FF0000")); // Health Color
-    painter.drawRect(pFillRect);
-    
-    painter.setPen(QPen(QColor("#D4AF37"), 2)); // Border
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRect(pBarRect);
-    
-    // Player Name under bar
-    painter.setFont(QFont("Showcard Gothic", 10));
-    painter.drawText(50, hudY + barHeight + 15, "PLAYER");
+    if (!gameManager_) {
+        return;
+    }
 
-    // Enemy Health Bar (Top Right)
-    int eBarX = width() - 50 - barWidth;
-    QRect eBarRect(eBarX, hudY, barWidth, barHeight);
-    painter.setBrush(QColor("#444444"));
-    painter.drawRect(eBarRect);
-    
-    QRect eFillRect(eBarX + (barWidth - (int)(barWidth * enemyHpDisplay_)), hudY, (int)(barWidth * enemyHpDisplay_), barHeight);
-    painter.setBrush(QColor("#FF0000"));
-    painter.drawRect(eFillRect);
-    
+    const Player *player = gameManager_->getPlayer();
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    if (!player || !enemy) {
+        return;
+    }
+
+    const int outerMargin = 28;
+    const int hudY = 18;
+    const int panelWidth = qMin(360, qMax(260, (width() - 260) / 2));
+    const int panelHeight = 74;
+    const int centerWidth = 184;
+    const QRectF playerPanel(outerMargin, hudY, panelWidth, panelHeight);
+    const QRectF enemyPanel(width() - outerMargin - panelWidth, hudY, panelWidth, panelHeight);
+    const QRectF scorePanel((width() - centerWidth) / 2.0, hudY - 2.0, centerWidth, panelHeight + 8.0);
+
+    auto drawPanel = [&](const QRectF &panelRect,
+                         bool leftAligned,
+                         const QString &title,
+                         const QString &subtitle,
+                         int hp,
+                         int maxHp,
+                         double displayRatio,
+                         const QColor &accentStart,
+                         const QColor &accentEnd) {
+        QPainterPath panelPath;
+        panelPath.addRoundedRect(panelRect, 18, 18);
+
+        painter.save();
+        painter.setPen(Qt::NoPen);
+        painter.fillPath(panelPath.translated(0, 4), QColor(0, 0, 0, 55));
+        painter.fillPath(panelPath, QColor(34, 20, 13, 225));
+        painter.setPen(QPen(QColor("#D4AF37"), 2));
+        painter.drawPath(panelPath);
+
+        QRectF headerStrip = panelRect.adjusted(12, 10, -12, -42);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 255, 255, 16));
+        painter.drawRoundedRect(headerStrip, 10, 10);
+
+        QFont titleFont("Showcard Gothic", 10);
+        if (titleFont.family() != "Showcard Gothic") {
+            titleFont = painter.font();
+            titleFont.setPointSize(11);
+            titleFont.setBold(true);
+        }
+        painter.setFont(titleFont);
+        painter.setPen(QColor("#F7D774"));
+        painter.drawText(panelRect.adjusted(16, 8, -16, 0),
+                         leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
+                         title);
+
+        QFont subFont = painter.font();
+        subFont.setFamily("Segoe UI");
+        subFont.setPointSize(8);
+        subFont.setBold(false);
+        painter.setFont(subFont);
+        painter.setPen(QColor("#C6A66A"));
+        painter.drawText(panelRect.adjusted(16, 30, -16, 0),
+                         leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
+                         subtitle);
+
+        const QRectF barRect(panelRect.x() + 16.0, panelRect.bottom() - 28.0, panelRect.width() - 32.0, 16.0);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(67, 44, 29, 235));
+        painter.drawRoundedRect(barRect, 8, 8);
+
+        const double clampedRatio = qBound(0.0, displayRatio, 1.0);
+        QRectF fillRect = barRect.adjusted(2.0, 2.0, -2.0, -2.0);
+        fillRect.setWidth(qMax(0.0, (barRect.width() - 4.0) * clampedRatio));
+        if (!leftAligned) {
+            fillRect.moveRight(barRect.right() - 2.0);
+        }
+
+        QLinearGradient fillGradient(fillRect.topLeft(), fillRect.topRight());
+        fillGradient.setColorAt(0.0, accentStart);
+        fillGradient.setColorAt(1.0, accentEnd);
+        painter.setBrush(fillGradient);
+        painter.drawRoundedRect(fillRect, 6, 6);
+
+        painter.setPen(QPen(QColor(255, 255, 255, 28), 1));
+        for (int i = 1; i < 8; ++i) {
+            const qreal tickX = barRect.left() + (barRect.width() * i / 8.0);
+            painter.drawLine(QPointF(tickX, barRect.top() + 2.0), QPointF(tickX, barRect.bottom() - 2.0));
+        }
+
+        QFont valueFont("Segoe UI", 8, QFont::Bold);
+        painter.setFont(valueFont);
+        painter.setPen(QColor("#FFF3C4"));
+        painter.drawText(barRect, Qt::AlignCenter, QString("%1 / %2").arg(hp).arg(maxHp));
+        painter.restore();
+    };
+
+    drawPanel(playerPanel,
+              true,
+              QString::fromStdString(player->getName()).toUpper(),
+              healCooldown_ > 0.0 ? QString("Heal ready in %1s").arg(QString::number(healCooldown_, 'f', 1))
+                                  : QString("Heal ready"),
+              player->getHealth(),
+              player->getMaxHealth(),
+              playerHpDisplay_,
+              QColor("#7CFF63"),
+              QColor("#22C55E"));
+
+    drawPanel(enemyPanel,
+              false,
+              QString::fromStdString(enemy->getName()).toUpper(),
+              QString("Hostile target"),
+              enemy->getHealth(),
+              enemy->getMaxHealth(),
+              enemyHpDisplay_,
+              QColor("#FF9A56"),
+              QColor("#DC2626"));
+
+    QPainterPath scorePath;
+    scorePath.addRoundedRect(scorePanel, 22, 22);
+    painter.fillPath(scorePath.translated(0, 4), QColor(0, 0, 0, 60));
+    painter.fillPath(scorePath, QColor(24, 13, 9, 232));
     painter.setPen(QPen(QColor("#D4AF37"), 2));
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRect(eBarRect);
-    
-    // Enemy Name
-    painter.drawText(QRect(eBarX, hudY + barHeight, barWidth, 20), Qt::AlignRight, "ENEMY");
+    painter.drawPath(scorePath);
 
-    // Score (Center)
-    painter.setFont(QFont("Showcard Gothic", 24));
+    painter.setPen(QColor("#C6A66A"));
+    QFont labelFont("Segoe UI", 8, QFont::DemiBold);
+    painter.setFont(labelFont);
+    painter.drawText(scorePanel.adjusted(0, 8, 0, 0), Qt::AlignHCenter | Qt::AlignTop, "ARENA SCORE");
+
+    QFont scoreFont("Showcard Gothic", 24);
+    if (scoreFont.family() != "Showcard Gothic") {
+        scoreFont = painter.font();
+        scoreFont.setPointSize(24);
+        scoreFont.setBold(true);
+    }
+    painter.setFont(scoreFont);
     painter.setPen(QColor("#FFD700"));
-    painter.drawText(0, hudY, width(), 40, Qt::AlignCenter, QString::number(score_));
+    painter.drawText(scorePanel.adjusted(0, 18, 0, -6), Qt::AlignCenter, QString::number(score_));
+
+    QFont levelFont("Segoe UI", 8, QFont::Bold);
+    painter.setFont(levelFont);
+    painter.setPen(QColor("#F3D38C"));
+    painter.drawText(scorePanel.adjusted(0, 0, 0, 8), Qt::AlignHCenter | Qt::AlignBottom,
+                     QString("LEVEL %1").arg(gameManager_->getPlayerLevel()));
 }
 
 void BattleWidget::tryPlayerHeal() {
@@ -662,47 +1173,61 @@ void BattleWidget::tryPlayerHeal() {
 }
 
 void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double y, int hp, int maxHp,
-                                            const QString &name, AnimatedCharacter* animChar, bool isPlayer) {
-    QPixmap frame = animChar ? animChar->getCurrentFrame() : QPixmap();
+                                            const QString &name, AnimatedCharacter *animChar, bool isPlayer) {
+    if (!animChar) return;
+
+    const double arenaHeight = height() - 160.0;
+    const double desiredVisibleHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+
+    const QPixmap frame = animChar->getCurrentFrame();
     if (frame.isNull()) {
-        frame = isPlayer ? playerFallbackSprite_ : enemyFallbackSprite_;
+        // Fallback drawing if animation fails
+        drawFighter(painter, x, y, hp, maxHp, name, isPlayer, false);
+        return;
     }
 
-    if (!frame.isNull()) {
-        const qreal scale = 5.0;
-        const qreal targetWidth = frame.width() * scale;
-        const qreal targetHeight = frame.height() * scale;
+    AnimationManager *animManager = isPlayer ? playerAnimManager_ : enemyAnimManager_;
+    QPixmap referenceFrame;
+    if (animManager) {
+        referenceFrame = animManager->getFrame(AnimationState::IDLE, 0);
+    }
 
-        const bool shouldFaceRight = isPlayer ? (enemyX_ >= playerX_) : (playerX_ <= enemyX_);
+    if (referenceFrame.isNull()) {
+        referenceFrame = frame;
+    }
 
+    const QRect visibleBounds = opaqueBounds(frame);
+    const QRect referenceBounds = opaqueBounds(referenceFrame);
+    const QRect src(0, 0, frame.width(), frame.height());
+    const double referenceHeight = qMax(1, referenceBounds.height());
+    const double scale = desiredVisibleHeight / referenceHeight;
+    const double scaledWidth = src.width() * scale;
+    const double scaledHeight = src.height() * scale;
+
+    const double visibleCenterX = visibleBounds.x() + (visibleBounds.width() / 2.0);
+    const double visibleBottomY = visibleBounds.y() + visibleBounds.height();
+    const double drawX = x - (visibleCenterX * scale);
+    const double drawY = y - (visibleBottomY * scale);
+
+    QRectF destRect(drawX, drawY, scaledWidth, scaledHeight);
+
+    // Flip horizontally if needed
+    if ((isPlayer && playerAnimChar_->isFacingLeft()) || (!isPlayer && enemyAnimChar_->isFacingLeft())) {
         painter.save();
-        if (!shouldFaceRight) {
-            painter.translate(x, 0);
-            painter.scale(-1.0, 1.0);
-            painter.translate(-x, 0);
-        }
-
-        // Apply a specific offset to push the sprite down (because characters are drawn with padding in their frames)
-        const qreal targetYOffset = targetHeight * 0.15; // Push down by 15% of the sprites' height
-
-        painter.drawPixmap(QRectF(x - targetWidth * 0.5, y - targetHeight + targetYOffset, targetWidth, targetHeight),
-                           frame, QRectF(0, 0, frame.width(), frame.height()));
+        painter.translate(destRect.center().x(), 0);
+        painter.scale(-1, 1);
+        painter.translate(-destRect.center().x(), 0);
+        painter.drawPixmap(destRect.toRect(), frame, src);
         painter.restore();
     } else {
-        QColor bodyColor = isPlayer ? QColor("#4169E1") : QColor("#DC143C");
-        painter.fillRect(x - 30, y - 60, 60, 80, bodyColor);
-        painter.fillRect(x - 20, y - 90, 40, 35, bodyColor.lighter());
-        painter.setPen(QPen(QColor("#D4AF37"), 2));
-        painter.drawRect(x - 30, y - 60, 60, 80);
-        painter.drawRect(x - 20, y - 90, 40, 35);
+        painter.drawPixmap(destRect.toRect(), frame, src);
     }
-    
+
     // Name label
     painter.setPen(QColor("#D4AF37"));
     QFont font = painter.font();
     font.setPointSize(9);
     font.setBold(true);
     painter.setFont(font);
-    painter.drawText(x - 40, y + 80, 80, 20, Qt::AlignCenter, name);
+    painter.drawText(QRect(x - 50, y + 5, 100, 20), Qt::AlignCenter, name);
 }
-

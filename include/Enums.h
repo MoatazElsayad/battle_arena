@@ -19,7 +19,8 @@ enum class CharacterType {
     MARTIAL,
     MARTIAL_HERO,
     MEDIEVAL_WARRIOR,
-    WIZARD
+    WIZARD,
+    FLYING_DEMON
 };
 
 enum class DifficultyLevel {

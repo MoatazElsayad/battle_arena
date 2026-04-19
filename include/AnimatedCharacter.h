@@ -27,6 +27,9 @@ public:
     void takeDamage();
     void reset();
 
+    void setFacingLeft(bool facingLeft) { m_facingLeft = facingLeft; }
+    bool isFacingLeft() const { return m_facingLeft; }
+
 public slots:
     void updateAnimation();
 
@@ -44,6 +47,7 @@ private:
     bool m_isDead;
     bool m_isTransitioning;
     QTimer* m_animationTimer;
+    bool m_facingLeft;
 };
 
 #endif // ANIMATEDCHARACTER_H

@@ -100,6 +100,13 @@ CharacterFeatureSet featureSetFor(CharacterType type) {
         return found->second;
     }
 
+    // Hardcode Arcen features since it uses a single Attack.png for all attacks
+    if (type == CharacterType::ARCEN) {
+        CharacterFeatureSet arcenFeatures{1, {"attack"}, 3, false, false};
+        cache[key] = arcenFeatures;
+        return arcenFeatures;
+    }
+
     CharacterFeatureSet features{0, {}, 0, false, false};
 
     fs::path playersRoot = resolvePlayersRoot();
@@ -144,6 +151,11 @@ CharacterFeatureSet featureSetFor(CharacterType type) {
     }
 
     if (features.attackOptions > 3) {
+        features.attackOptions = 3;
+    }
+
+    // Arcen uses the same Attack.png for all 3 attacks, so we need to ensure it reports 3 attacks
+    if (type == CharacterType::ARCEN && features.attackOptions < 3) {
         features.attackOptions = 3;
     }
 

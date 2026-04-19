@@ -39,7 +39,10 @@ private slots:
     void advanceFrame();
 
 private:
+    double groundY() const;
+    void drawArenaBackground(QPainter &painter);
     void loadPrototypeAnimations();
+    void loadCharacterAnimations(CharacterType type);
     void updatePlayerMovement(double dt);
     void updateEnemyAI(double dt);
     void tryPlayerAttack(double dt);
@@ -51,6 +54,9 @@ private:
     void drawHUD(QPainter &painter);
     void drawFighterWithAnimation(QPainter &painter, double x, double y, int hp, int maxHp,
                                    const QString &name, AnimatedCharacter* animChar, bool isPlayer);
+    void drawArcenProjectile(QPainter &painter);
+    void spawnArcenProjectile(int damage);
+    void updateArcenProjectile(double dt);
     void tryPlayerHeal();
 
     GameManager *gameManager_;
@@ -61,6 +67,9 @@ private:
     AnimationManager *enemyAnimManager_;
     QPixmap playerFallbackSprite_;
     QPixmap enemyFallbackSprite_;
+    QPixmap arcenArrowSprite_;
+    QPixmap arcenArrowMoveSprite_;
+    QPixmap arenaBackgroundPlaceholder_;
     
     QTimer frameTimer_;
     QElapsedTimer elapsedTimer_;
@@ -78,6 +87,7 @@ private:
     double enemyCooldown_;
     double healCooldown_;
     double battleEndDelay_;
+    double introLockTime_;
 
     // HUD state
     double playerHpDisplay_;
@@ -89,6 +99,14 @@ private:
     double enemyX_;
     double playerHeight_;
     double enemyHeight_;
+    bool arcenProjectileActive_;
+    bool arcenProjectileFacingRight_;
+    int arcenProjectileDamage_;
+    double arcenProjectileX_;
+    double arcenProjectileY_;
+    double arcenProjectileSpeed_;
+    double arcenProjectileAnimTime_;
+    int arcenProjectileFrame_;
 
     // Combat tracking
     QString statusMessage_;
@@ -97,9 +115,14 @@ private:
 
     static constexpr double PLAYER_START_X = 150.0;
     static constexpr double ENEMY_START_X = 850.0;
-    static constexpr double GROUND_Y = 520.0;
+    static constexpr double ARENA_LEFT_X = 50.0;
+    static constexpr double ARENA_RIGHT_MARGIN = 50.0;
+    static constexpr double ARENA_FLOOR_OFFSET = 10.0;
+    static constexpr double FIGHTER_VISIBLE_HEIGHT_RATIO = 0.432;
+    static constexpr double ARCEN_ARROW_LAUNCH_HEIGHT_RATIO = 0.73;
     static constexpr double MOVE_SPEED = 200.0;
     static constexpr double ATTACK_RANGE = 120.0;
+    static constexpr double ARCEN_PROJECTILE_HIT_WIDTH = 45.0;
     static constexpr double PLAYER_ATTACK_COOLDOWN = 0.8;
     static constexpr double ENEMY_ATTACK_COOLDOWN = 1.2;
 };

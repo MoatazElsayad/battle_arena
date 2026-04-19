@@ -1,7 +1,7 @@
 #include "Character.h"
 
 Character::Character(int hp, int maxHp, float x, float y, float speed, int attackPower)
-    : hp(hp), maxHp(maxHp), x(x), y(y), speed(speed), attackPower(attackPower), name("Unknown") {}
+    : hp(hp), maxHp(maxHp), x(x), y(y), speed(speed), attackPower(attackPower), name_("Unknown") {}
 
 Character::~Character() {}
 
