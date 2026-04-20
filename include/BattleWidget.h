@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QPixmap>
+#include <QColor>
 #include "Enums.h"
 
 class GameManager;
@@ -18,6 +19,9 @@ class BattleWidget : public QWidget {
     Q_OBJECT
 
 public:
+    // 1v1 teammate:
+    // Try to keep combat code unchanged.
+    // Duel mode should reuse this widget and only receive different setup/state.
     explicit BattleWidget(QWidget *parent = nullptr);
     ~BattleWidget();
 
@@ -41,8 +45,10 @@ private slots:
 private:
     double groundY() const;
     void drawArenaBackground(QPainter &painter);
+    void refreshArenaBackground();
     void loadPrototypeAnimations();
-    void loadCharacterAnimations(CharacterType type);
+    void loadCharacterAnimations(PlayerType type);
+    void loadEnemyAnimations(EnemyType type);
     void updatePlayerMovement(double dt);
     void updateEnemyAI(double dt);
     void tryPlayerAttack(double dt);
@@ -57,6 +63,9 @@ private:
     void drawArcenProjectile(QPainter &painter);
     void spawnArcenProjectile(int damage);
     void updateArcenProjectile(double dt);
+    void drawEnemyProjectile(QPainter &painter);
+    void spawnEnemyProjectile(EnemyType type, int damage);
+    void updateEnemyProjectile(double dt);
     void tryPlayerHeal();
 
     GameManager *gameManager_;
@@ -69,7 +78,10 @@ private:
     QPixmap enemyFallbackSprite_;
     QPixmap arcenArrowSprite_;
     QPixmap arcenArrowMoveSprite_;
+    QPixmap enemyProjectileMoveSprite_;
+    QPixmap enemyProjectileExplodeSprite_;
     QPixmap arenaBackgroundPlaceholder_;
+    QColor arenaGroundBaseColor_;
     
     QTimer frameTimer_;
     QElapsedTimer elapsedTimer_;
@@ -107,6 +119,17 @@ private:
     double arcenProjectileSpeed_;
     double arcenProjectileAnimTime_;
     int arcenProjectileFrame_;
+    bool enemyProjectileActive_;
+    bool enemyProjectileExploding_;
+    bool enemyProjectileFacingRight_;
+    EnemyType enemyProjectileType_;
+    int enemyProjectileDamage_;
+    double enemyProjectileX_;
+    double enemyProjectileY_;
+    double enemyProjectileSpeed_;
+    double enemyProjectileAnimTime_;
+    int enemyProjectileFrame_;
+    double enemyProjectileExplosionTime_;
 
     // Combat tracking
     QString statusMessage_;
@@ -123,6 +146,7 @@ private:
     static constexpr double MOVE_SPEED = 200.0;
     static constexpr double ATTACK_RANGE = 120.0;
     static constexpr double ARCEN_PROJECTILE_HIT_WIDTH = 45.0;
+    static constexpr double ENEMY_PROJECTILE_HIT_WIDTH = 52.0;
     static constexpr double PLAYER_ATTACK_COOLDOWN = 0.8;
     static constexpr double ENEMY_ATTACK_COOLDOWN = 1.2;
 };

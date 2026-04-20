@@ -1,10 +1,15 @@
 #include <QApplication>
+#include <QCoreApplication>
 #include <QCursor>
+#include <QDir>
+#include <QFileInfo>
+#include <QIcon>
 #include <QObject>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
+#include <QStringList>
 #include <QTimer>
 #include <QWidget>
 #include <QtGlobal>
@@ -53,6 +58,31 @@ QCursor createVisibleArrowCursor() {
 
     return QCursor(pixmap, 1, 1);
 }
+QString resolveAssetPath(const QString& relativePath) {
+    if (relativePath.isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo directInfo(relativePath);
+    if (directInfo.isAbsolute() && directInfo.exists()) {
+        return directInfo.absoluteFilePath();
+    }
+
+    const QStringList candidates = {
+        QDir::current().filePath(relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../") + relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../") + relativePath)
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(candidate);
+        }
+    }
+
+    return QString();
+}
 
 } // namespace
 
@@ -70,8 +100,21 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     const QCursor visibleCursor = createVisibleArrowCursor();
     QApplication::setOverrideCursor(visibleCursor);
+    const QString appIconPath = resolveAssetPath(QStringLiteral("assets/icons/shield.png"));
+    if (!appIconPath.isEmpty()) {
+        const QIcon appIcon(appIconPath);
+        if (!appIcon.isNull()) {
+            app.setWindowIcon(appIcon);
+        }
+    }
 
     MainWindow window;
+    if (!appIconPath.isEmpty()) {
+        const QIcon appIcon(appIconPath);
+        if (!appIcon.isNull()) {
+            window.setWindowIcon(appIcon);
+        }
+    }
     window.show();
 
     auto* softwareCursor = new SoftwareCursorOverlay(&window);

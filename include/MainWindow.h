@@ -22,6 +22,7 @@ class QListWidget;
 class QComboBox;
 class ProfilePage;
 class QStackedWidget;
+class QTimer;
 class QWidget;
 
 class MainWindow : public QMainWindow {
@@ -45,6 +46,11 @@ private slots:
     void restartDemo();
 
 private:
+    // 1v1 teammate:
+    // MainWindow should gather duel setup from the lobby
+    // and launch the correct theme using the existing combat page.
+    // Ranking teammate:
+    // MainWindow should refresh profile/lobby UI after progression changes.
     void buildUi();
     QWidget* createWelcomePage();
     QWidget* createLoginPage();
@@ -85,6 +91,7 @@ private:
     QLineEdit *regUsernameEdit_;
     QLineEdit *regPasswordEdit_;
     QLineEdit *regPasswordRepeatEdit_;
+    QTimer *welcomeTransitionTimer_;
     BattleWidget *battleWidget_;
     GamePage *gamePage_;
     QLabel *battleTitleLabel_;
@@ -94,10 +101,10 @@ private:
     GameManager *gameManager_;
     DatabaseManager *databaseManager_;
     SoundManager *soundManager_;
-    std::vector<CharacterType> sortedCharacterTypes_;
+    std::vector<PlayerType> sortedPlayerTypes_;
     QString currentLobbyUsername_;
     int currentCharacterIndex_;
-    CharacterType selectedCharacterType_;
+    PlayerType selectedPlayerType_;
 };
 
 #endif // MAINWINDOW_H

@@ -67,12 +67,12 @@ public:
     void update();  // Call once per frame to update "just pressed" tracking
     void reset();
 
-    static CharacterFeatureSet getCharacterFeatures(CharacterType type);
-    static bool canPerformAction(CharacterType type, PlayerAction action);
-    static int countActionFeatures(CharacterType type);
-    static std::vector<std::string> getCharacterFeatureNames(CharacterType type);
-    static std::string characterTypeToDisplayName(CharacterType type);
-    static std::vector<CharacterType> getCharactersSortedByFeatures();
+    static CharacterFeatureSet getCharacterFeatures(PlayerType type);
+    static bool canPerformAction(PlayerType type, PlayerAction action);
+    static int countActionFeatures(PlayerType type);
+    static std::vector<std::string> getCharacterFeatureNames(PlayerType type);
+    static std::string playerTypeToDisplayName(PlayerType type);
+    static std::vector<PlayerType> getCharactersSortedByFeatures();
 
 private:
     std::set<int> keys;         // Currently held keys

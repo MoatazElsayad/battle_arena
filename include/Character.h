@@ -9,7 +9,6 @@ protected:
     int hp, maxHp, attackPower;
     float x, y, speed;
     std::string name_;
-    CharacterType type_;
 
 public:
     Character(int hp, int maxHp, float x, float y, float speed, int attackPower);
@@ -27,7 +26,6 @@ public:
     virtual int calculateDamage() const;
     std::string getName() const { return name_; }
     void setName(const std::string &n) { name_ = n; }
-    virtual CharacterType getType() const { return type_; }
 };
 
 #endif

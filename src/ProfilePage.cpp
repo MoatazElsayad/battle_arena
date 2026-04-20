@@ -6,6 +6,14 @@
 #include <QComboBox>
 #include <QFont>
 
+// Ranking teammate:
+// Extend this page if you want a fuller progression panel.
+// Good data to show here:
+// - total score
+// - current rank
+// - rating out of 5
+// - wins / losses / total matches
+
 ProfilePage::ProfilePage(QWidget *parent)
     : QWidget(parent),
       ui(nullptr),
@@ -122,6 +130,8 @@ void ProfilePage::setUsername(const QString &username) {
 }
 
 void ProfilePage::setScore(int score) {
+    // Ranking teammate:
+    // Keep score updates here and add rating/rank/match-stat setters nearby if needed.
     QLabel *scoreLabel = findChild<QLabel *>("ScoreLable");
     if (scoreLabel) {
         scoreLabel->setText(QString::number(score));
@@ -159,5 +169,4 @@ void ProfilePage::on_characterCombo_currentTextChanged(const QString &text) {
     selectedCharacterType_ = text;
     emit characterTypeChanged(text);
 }
-
 

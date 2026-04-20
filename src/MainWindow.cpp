@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QLineEdit>
+#include <QFrame>
 #include <QListWidget>
 #include <QStackedWidget>
 #include <QWidget>
@@ -27,9 +28,15 @@
 #include <QMessageBox>
 #include <QFont>
 #include <QObject>
+#include <QPixmap>
+#include <QImage>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QGraphicsOpacityEffect>
+#include <QEasingCurve>
+#include <QTimer>
+#include <QVariantAnimation>
 
 namespace {
 QString resolveAssetPath(const QString& relativePath) {
@@ -58,29 +65,146 @@ QString resolveAssetPath(const QString& relativePath) {
     return QDir::cleanPath(relativePath);
 }
 
-QString characterImagePath(CharacterType type) {
+QString characterImagePath(PlayerType type) {
     switch (type) {
-        case CharacterType::ARCEN:
+        case PlayerType::ARCEN:
             return resolveAssetPath("assets/players/Arcen/image.png");
-        case CharacterType::DEMON_SLAYER:
+        case PlayerType::DEMON_SLAYER:
             return resolveAssetPath("assets/players/Demon_Slayer/image.png");
-        case CharacterType::FANTASY_WARRIOR:
+        case PlayerType::FANTASY_WARRIOR:
             return resolveAssetPath("assets/players/Fantasy_Warrior/image.png");
-        case CharacterType::HUNTRESS:
+        case PlayerType::HUNTRESS:
             return resolveAssetPath("assets/players/Huntress/image.png");
-        case CharacterType::KNIGHT:
+        case PlayerType::KNIGHT:
             return resolveAssetPath("assets/players/Knight/image.png");
-        case CharacterType::MARTIAL:
+        case PlayerType::MARTIAL:
             return resolveAssetPath("assets/players/Martial/image.png");
-        case CharacterType::MARTIAL_HERO:
+        case PlayerType::MARTIAL_HERO:
             return resolveAssetPath("assets/players/Martial_Hero/image.png");
-        case CharacterType::MEDIEVAL_WARRIOR:
+        case PlayerType::MEDIEVAL_WARRIOR:
             return resolveAssetPath("assets/players/Medieval_Warrior/image.png");
-        case CharacterType::WIZARD:
+        case PlayerType::WIZARD:
             return resolveAssetPath("assets/players/Wizard/image.png");
         default:
             return QString();
     }
+}
+
+QString playerSpecialMoveText(PlayerType type) {
+    switch (type) {
+        case PlayerType::ARCEN:
+            return "Long-range bow pressure with precise ranged control.";
+        case PlayerType::DEMON_SLAYER:
+            return "Heavy blade rushdown with clean melee finishers.";
+        case PlayerType::FANTASY_WARRIOR:
+            return "Balanced sword stance with steady frontline pressure.";
+        case PlayerType::HUNTRESS:
+            return "Quick footwork and agile strike-and-retreat spacing.";
+        case PlayerType::KNIGHT:
+            return "Disciplined armored offense with reliable close combat.";
+        case PlayerType::MARTIAL:
+            return "Fast chained hits built around relentless close pressure.";
+        case PlayerType::MARTIAL_HERO:
+            return "Heroic combo style with explosive burst windows.";
+        case PlayerType::MEDIEVAL_WARRIOR:
+            return "Grounded weapon control with measured heavy swings.";
+        case PlayerType::WIZARD:
+            return "Mystic pacing with calculated ranged and mid-range control.";
+        default:
+            return "Adaptive combat style ready for the arena.";
+    }
+}
+
+QString logoImagePath() {
+    return resolveAssetPath("assets/backgrounds/logo.png");
+}
+
+QPixmap transparentLogoPixmap(int maxHeight) {
+    const QPixmap source(logoImagePath());
+    if (source.isNull()) {
+        return QPixmap();
+    }
+
+    QImage image = source.toImage().convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < image.height(); ++y) {
+        QRgb* row = reinterpret_cast<QRgb*>(image.scanLine(y));
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = QColor::fromRgb(row[x]);
+            if (color.red() < 28 && color.green() < 28 && color.blue() < 28) {
+                row[x] = qRgba(color.red(), color.green(), color.blue(), 0);
+            }
+        }
+    }
+
+    return QPixmap::fromImage(image).scaledToHeight(maxHeight, Qt::SmoothTransformation);
+}
+
+QLabel* createLogoLabel(QWidget* parent, int maxHeight = 140) {
+    auto* label = new QLabel(parent);
+    label->setAlignment(Qt::AlignCenter);
+    const QPixmap logo = transparentLogoPixmap(maxHeight);
+    if (!logo.isNull()) {
+        label->setPixmap(logo);
+    } else {
+        label->setText("GLADIATORS");
+        label->setStyleSheet("color:#F2C86B; font:900 34px 'Segoe UI'; letter-spacing:2px;");
+    }
+    return label;
+}
+
+QString authPageStyle() {
+    return QString(
+        "QWidget { background-color: #110D0B; color: #F5E6D3; }"
+        "QFrame#authHero {"
+        " background:qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(46,31,20,0.92), stop:1 rgba(24,17,13,0.96));"
+        " border:1px solid rgba(212,160,23,0.20);"
+        " border-radius:24px;"
+        "}"
+        "QFrame#authPanel {"
+        " background:rgba(26,20,15,0.92);"
+        " border:1px solid rgba(212,160,23,0.24);"
+        " border-radius:24px;"
+        "}"
+        "QLabel#eyebrow { color:#F4D895; font:700 12px 'Segoe UI'; letter-spacing:1px; }"
+        "QLabel#heroTitle { color:#FFF0C6; font:900 36px 'Segoe UI'; }"
+        "QLabel#heroBody { color:rgba(245,230,184,0.80); font:14px 'Segoe UI'; }"
+        "QLabel#panelTitle { color:#FFF0C6; font:800 28px 'Segoe UI'; }"
+        "QLabel#panelBody { color:rgba(245,230,184,0.72); font:12px 'Segoe UI'; }"
+        "QLabel#featureChip {"
+        " color:#F7E6BD;"
+        " background:rgba(212,160,23,0.10);"
+        " border:1px solid rgba(212,160,23,0.20);"
+        " border-radius:12px;"
+        " padding:8px 10px;"
+        " font:700 12px 'Segoe UI';"
+        "}"
+        "QLineEdit {"
+        " background-color: rgba(43,31,22,0.94);"
+        " color: #F5E6D3;"
+        " border: 1px solid #7C5A24;"
+        " border-radius: 12px;"
+        " padding: 12px 14px;"
+        " font: 13px 'Segoe UI';"
+        "}"
+        "QLineEdit:focus { border: 1px solid #D4A017; }"
+        "QPushButton#primaryAction {"
+        " background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #7A1010, stop:1 #D43B24);"
+        " color: #FFF1E8;"
+        " border: 2px solid #E47C60;"
+        " border-radius: 14px;"
+        " padding: 12px 18px;"
+        " font: 800 16px 'Segoe UI';"
+        "}"
+        "QPushButton#primaryAction:hover { border-color:#FFC19D; }"
+        "QPushButton#secondaryAction {"
+        " background: rgba(72,50,31,0.92);"
+        " color: #F5E6D3;"
+        " border: 1px solid #D4A017;"
+        " border-radius: 14px;"
+        " padding: 12px 18px;"
+        " font: 700 14px 'Segoe UI';"
+        "}"
+        "QPushButton#secondaryAction:hover { background: rgba(98,68,41,0.98); }");
 }
 }
 
@@ -116,12 +240,13 @@ MainWindow::MainWindow(QWidget *parent)
       battleTitleLabel_(nullptr),
       gameOverTitleLabel_(nullptr),
       gameOverSummaryLabel_(nullptr),
+      welcomeTransitionTimer_(new QTimer(this)),
       gameManager_(nullptr),
       databaseManager_(nullptr),
       soundManager_(nullptr),
     currentLobbyUsername_("Player_01"),
     currentCharacterIndex_(0),
-      selectedCharacterType_(CharacterType::KNIGHT) {
+      selectedPlayerType_(PlayerType::KNIGHT) {
     setWindowTitle("Battle Arena");
     setWindowState(Qt::WindowMaximized);
     setStyleSheet("QMainWindow { background-color: #3D2817; color: #F5E6D3; }");
@@ -129,8 +254,19 @@ MainWindow::MainWindow(QWidget *parent)
     // Initialize managers
     databaseManager_ = new DatabaseManager();
     gameManager_ = new GameManager();
+    // Ranking teammate:
+    // MainWindow is a good place to coordinate:
+    // - reading stored progression
+    // - updating progression after battle results
+    // - refreshing lobby/profile display
+    // Sound teammate:
+    // Re-enable and initialize SoundManager here.
+    // MainWindow is the best place to switch music for welcome/login/lobby/battle/game-over.
     // soundManager_ = new SoundManager(); // Disabled for now
     // soundManager_->initialize();
+
+    welcomeTransitionTimer_->setSingleShot(true);
+    connect(welcomeTransitionTimer_, &QTimer::timeout, this, &MainWindow::showLoginPage);
     
     // Build the UI
     buildUi();
@@ -191,45 +327,41 @@ void MainWindow::buildUi() {
 
     // Connect page signals
     connect(gameOverPage_, &GameOverPage::playAgain, this, &MainWindow::startDemo);
-    connect(gameOverPage_, &GameOverPage::backToMenu, this, &MainWindow::showWelcomePage);
-    connect(pausePage_, &PausePage::resumeClicked, this, &MainWindow::showWelcomePage);
-    connect(pausePage_, &PausePage::menuClicked, this, &MainWindow::showWelcomePage);
+    connect(gameOverPage_, &GameOverPage::backToMenu, this, &MainWindow::showSetupPage);
+    connect(pausePage_, &PausePage::resumeClicked, this, [this]() {
+        if (battlePage_) {
+            stack_->setCurrentWidget(battlePage_);
+        }
+    });
+    connect(pausePage_, &PausePage::menuClicked, this, &MainWindow::showSetupPage);
     connect(pausePage_, &PausePage::settingsClicked, this, &MainWindow::showSettingsPage);
-    connect(leaderboardPage_, &LeaderboardPage::backClicked, this, &MainWindow::showWelcomePage);
-    connect(settingsPage_, &SettingsPage::backClicked, this, &MainWindow::showWelcomePage);
+    connect(leaderboardPage_, &LeaderboardPage::backClicked, this, &MainWindow::showSetupPage);
+    connect(settingsPage_, &SettingsPage::backClicked, this, &MainWindow::showSetupPage);
 
-    // Show integrated login page initially
-    showLoginPage();
+    // Show intro splash first
+    showWelcomePage();
 }
 
 QWidget* MainWindow::createLoginPage() {
     QWidget *page = new QWidget();
-    page->setStyleSheet(
-        "QWidget { background-color: #1A140F; color: #F5E6D3; }"
-        "QLabel { color: #D4A017; }"
-        "QLineEdit { background-color: #2C1F14; color: #F5E6D3; border: 1px solid #7C5A24; border-radius: 8px; padding: 10px; }"
-        "QLineEdit:focus { border: 1px solid #D4A017; }"
-        "QPushButton { background-color: #8B0000; color: #F5E6D3; border: 2px solid #D4A017; border-radius: 10px; padding: 10px 18px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #A50000; }"
-    );
+    page->setStyleSheet(authPageStyle());
 
     QVBoxLayout *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setContentsMargins(42, 32, 42, 32);
+    layout->setSpacing(18);
+    layout->addStretch(1);
 
-    layout->addStretch();
+    layout->addWidget(createLogoLabel(page, 170), 0, Qt::AlignHCenter);
 
-    QWidget *panel = new QWidget(page);
-    panel->setMaximumWidth(520);
-    panel->setStyleSheet("QWidget { background-color: #2C1F14; border: 1px solid #5A3D1E; border-radius: 14px; }");
+    QFrame *panel = new QFrame(page);
+    panel->setObjectName("authPanel");
+    panel->setMaximumWidth(500);
     QVBoxLayout *panelLayout = new QVBoxLayout(panel);
-    panelLayout->setContentsMargins(28, 28, 28, 28);
+    panelLayout->setContentsMargins(30, 30, 30, 30);
     panelLayout->setSpacing(16);
 
-    QLabel *title = new QLabel("Battle Arena Login", panel);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(22);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
+    QLabel *title = new QLabel("Login", panel);
+    title->setObjectName("panelTitle");
     title->setAlignment(Qt::AlignCenter);
     panelLayout->addWidget(title);
 
@@ -243,53 +375,78 @@ QWidget* MainWindow::createLoginPage() {
     panelLayout->addWidget(loginPasswordEdit_);
 
     QPushButton *loginButton = new QPushButton("Login", panel);
+    loginButton->setObjectName("primaryAction");
     connect(loginButton, &QPushButton::clicked, this, &MainWindow::attemptLogin);
     panelLayout->addWidget(loginButton);
 
     QPushButton *registerButton = new QPushButton("Create Account", panel);
-    registerButton->setStyleSheet(
-        "QPushButton { background-color: #5C4033; color: #F5E6D3; border: 1px solid #D4A017; border-radius: 10px; padding: 10px 18px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #725240; }"
-    );
+    registerButton->setObjectName("secondaryAction");
     connect(registerButton, &QPushButton::clicked, this, &MainWindow::showRegistrationPage);
     panelLayout->addWidget(registerButton);
 
     layout->addWidget(panel, 0, Qt::AlignHCenter);
-    layout->addStretch();
-
+    layout->addStretch(1);
     return page;
 }
 
 QWidget* MainWindow::createRegistrationPage() {
     QWidget *page = new QWidget();
-    page->setStyleSheet(
-        "QWidget { background-color: #1A140F; color: #F5E6D3; }"
-        "QLabel { color: #D4A017; }"
-        "QLineEdit { background-color: #2C1F14; color: #F5E6D3; border: 1px solid #7C5A24; border-radius: 8px; padding: 10px; }"
-        "QLineEdit:focus { border: 1px solid #D4A017; }"
-        "QPushButton { background-color: #8B0000; color: #F5E6D3; border: 2px solid #D4A017; border-radius: 10px; padding: 10px 18px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #A50000; }"
-    );
+    page->setStyleSheet(authPageStyle());
 
-    QVBoxLayout *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(0, 0, 0, 0);
+    QHBoxLayout *layout = new QHBoxLayout(page);
+    layout->setContentsMargins(42, 32, 42, 32);
+    layout->setSpacing(26);
 
-    layout->addStretch();
+    QFrame *hero = new QFrame(page);
+    hero->setObjectName("authHero");
+    QVBoxLayout *heroLayout = new QVBoxLayout(hero);
+    heroLayout->setContentsMargins(34, 34, 34, 34);
+    heroLayout->setSpacing(16);
 
-    QWidget *panel = new QWidget(page);
-    panel->setMaximumWidth(560);
-    panel->setStyleSheet("QWidget { background-color: #2C1F14; border: 1px solid #5A3D1E; border-radius: 14px; }");
+    QLabel *heroEyebrow = new QLabel("CREATE YOUR PROFILE", hero);
+    heroEyebrow->setObjectName("eyebrow");
+    heroLayout->addWidget(heroEyebrow);
+
+    heroLayout->addWidget(createLogoLabel(hero, 150), 0, Qt::AlignLeft);
+
+    QLabel *heroTitle = new QLabel("Build a new challenger and unlock the gates of the arena.", hero);
+    heroTitle->setObjectName("heroTitle");
+    heroTitle->setWordWrap(true);
+    heroLayout->addWidget(heroTitle);
+
+    QLabel *heroBody = new QLabel("Create your account to save your results, return to the lobby faster, and keep progressing through the enemy stages.", hero);
+    heroBody->setObjectName("heroBody");
+    heroBody->setWordWrap(true);
+    heroLayout->addWidget(heroBody);
+
+    QLabel *featureOne = new QLabel("Register once, then jump straight into the lobby", hero);
+    featureOne->setObjectName("featureChip");
+    heroLayout->addWidget(featureOne, 0, Qt::AlignLeft);
+
+    QLabel *featureTwo = new QLabel("Keep your identity and score attached to each run", hero);
+    featureTwo->setObjectName("featureChip");
+    heroLayout->addWidget(featureTwo, 0, Qt::AlignLeft);
+    heroLayout->addStretch(1);
+
+    layout->addWidget(hero, 5);
+
+    QFrame *panel = new QFrame(page);
+    panel->setObjectName("authPanel");
+    panel->setMaximumWidth(520);
     QVBoxLayout *panelLayout = new QVBoxLayout(panel);
-    panelLayout->setContentsMargins(28, 28, 28, 28);
+    panelLayout->setContentsMargins(30, 30, 30, 30);
     panelLayout->setSpacing(14);
 
-    QLabel *title = new QLabel("Create Battle Account", panel);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(20);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
+    QLabel *title = new QLabel("Registration", panel);
+    title->setObjectName("panelTitle");
     title->setAlignment(Qt::AlignCenter);
     panelLayout->addWidget(title);
+
+    QLabel *body = new QLabel("Set up a quick profile and continue to login.", panel);
+    body->setObjectName("panelBody");
+    body->setWordWrap(true);
+    body->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(body);
 
     regEmailEdit_ = new QLineEdit(panel);
     regEmailEdit_->setPlaceholderText("Email");
@@ -310,59 +467,112 @@ QWidget* MainWindow::createRegistrationPage() {
     panelLayout->addWidget(regPasswordRepeatEdit_);
 
     QPushButton *registerButton = new QPushButton("Register", panel);
+    registerButton->setObjectName("primaryAction");
     connect(registerButton, &QPushButton::clicked, this, &MainWindow::attemptRegistration);
     panelLayout->addWidget(registerButton);
 
     QPushButton *backButton = new QPushButton("Back to Login", panel);
-    backButton->setStyleSheet(
-        "QPushButton { background-color: #5C4033; color: #F5E6D3; border: 1px solid #D4A017; border-radius: 10px; padding: 10px 18px; font-weight: bold; }"
-        "QPushButton:hover { background-color: #725240; }"
-    );
+    backButton->setObjectName("secondaryAction");
     connect(backButton, &QPushButton::clicked, this, &MainWindow::showLoginPage);
     panelLayout->addWidget(backButton);
+    panelLayout->addStretch(1);
 
-    layout->addWidget(panel, 0, Qt::AlignHCenter);
-    layout->addStretch();
-
+    layout->addWidget(panel, 4, Qt::AlignVCenter);
     return page;
 }
 
 QWidget* MainWindow::createWelcomePage() {
     QWidget *page = new QWidget();
-    page->setStyleSheet("QWidget { background-color: #2A1810; } QLabel { color: #D4AF37; } QPushButton { background-color: #8B0000; color: #F5E6D3; border: 2px solid #D4AF37; padding: 8px; font-weight: bold; } QPushButton:hover { background-color: #A50000; }");
-    QVBoxLayout *layout = new QVBoxLayout(page);
-    layout->setAlignment(Qt::AlignCenter);
+    page->setStyleSheet(
+        "QWidget { background-color:#0F0B09; }"
+        "QFrame#introPanel {"
+        " background:qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(46,31,20,0.94), stop:1 rgba(20,14,11,0.98));"
+        " border:1px solid rgba(212,160,23,0.22);"
+        " border-radius:28px;"
+        "}"
+        "QLabel#introBody { color:rgba(245,230,184,0.80); font:15px 'Segoe UI'; }"
+        "QFrame#introOrb {"
+        " background:rgba(212,160,23,0.10);"
+        " border:1px solid rgba(212,160,23,0.22);"
+        " border-radius:34px;"
+        "}"
+    );
 
-    QLabel *titleLabel = new QLabel("Welcome to Battle Arena");
-    QFont font = titleLabel->font();
-    font.setPointSize(24);
-    font.setBold(true);
-    titleLabel->setFont(font);
-    layout->addWidget(titleLabel);
+    QHBoxLayout *layout = new QHBoxLayout(page);
+    layout->setContentsMargins(46, 40, 46, 40);
+    layout->setSpacing(26);
 
-    QLabel *descLabel = new QLabel("Test your skills in epic battles!");
-    layout->addWidget(descLabel);
+    auto buildDecorationColumn = [page]() -> QWidget* {
+        auto* column = new QWidget(page);
+        auto* columnLayout = new QVBoxLayout(column);
+        columnLayout->setContentsMargins(0, 0, 0, 0);
+        columnLayout->setSpacing(24);
+        columnLayout->addStretch(1);
 
-    layout->addSpacing(30);
+        const QList<QSize> orbSizes = {QSize(68, 68), QSize(40, 40), QSize(86, 86)};
+        for (const QSize& orbSize : orbSizes) {
+            auto* orb = new QFrame(column);
+            orb->setObjectName("introOrb");
+            orb->setFixedSize(orbSize);
 
-    QPushButton *playButton = new QPushButton("Play Game");
-    connect(playButton, &QPushButton::clicked, this, &MainWindow::showSetupPage);
-    layout->addWidget(playButton);
+            auto* effect = new QGraphicsOpacityEffect(orb);
+            effect->setOpacity(0.35);
+            orb->setGraphicsEffect(effect);
 
-    layout->addStretch();
+            auto* animation = new QVariantAnimation(orb);
+            animation->setStartValue(0.18);
+            animation->setEndValue(0.62);
+            animation->setDuration(1600 + orbSize.width() * 8);
+            animation->setLoopCount(-1);
+            animation->setEasingCurve(QEasingCurve::InOutSine);
+            QObject::connect(animation, &QVariantAnimation::valueChanged, orb, [effect](const QVariant& value) {
+                effect->setOpacity(value.toReal());
+            });
+            animation->start();
+
+            columnLayout->addWidget(orb, 0, Qt::AlignHCenter);
+        }
+
+        columnLayout->addStretch(1);
+        return column;
+    };
+
+    layout->addWidget(buildDecorationColumn(), 1);
+
+    QFrame *panel = new QFrame(page);
+    panel->setObjectName("introPanel");
+    QVBoxLayout *panelLayout = new QVBoxLayout(panel);
+    panelLayout->setContentsMargins(40, 40, 40, 40);
+    panelLayout->setSpacing(16);
+    panelLayout->addStretch(1);
+
+    panelLayout->addWidget(createLogoLabel(panel, 170), 0, Qt::AlignCenter);
+
+    QLabel *descLabel = new QLabel("Choose your fighter, climb through enemy stages, and enter hand-crafted battles one arena at a time.", panel);
+    descLabel->setObjectName("introBody");
+    descLabel->setWordWrap(true);
+    descLabel->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(descLabel);
+    panelLayout->addStretch(1);
+
+    layout->addWidget(panel, 6, Qt::AlignCenter);
+    layout->addWidget(buildDecorationColumn(), 1);
     return page;
 }
 
 QWidget* MainWindow::createSetupPage() {
+    // 1v1 teammate:
+    // Read duel setup from ProfileLobbyWidget here.
+    // When 1v1 is selected, route into duel setup instead of showing "coming soon".
     profileLobbyWidget_ = new ProfileLobbyWidget(this);
 
-    sortedCharacterTypes_ = InputHandler::getCharactersSortedByFeatures();
-    if (sortedCharacterTypes_.empty()) {
-        sortedCharacterTypes_.push_back(CharacterType::KNIGHT);
+    sortedPlayerTypes_ = InputHandler::getCharactersSortedByFeatures();
+    if (sortedPlayerTypes_.empty()) {
+        sortedPlayerTypes_.push_back(PlayerType::KNIGHT);
     }
 
     currentCharacterIndex_ = 0;
-    selectedCharacterType_ = sortedCharacterTypes_[currentCharacterIndex_];
+    selectedPlayerType_ = sortedPlayerTypes_[currentCharacterIndex_];
 
     ProfileLobbyWidget::UserProfile profile;
     profile.username = currentLobbyUsername_;
@@ -372,26 +582,37 @@ QWidget* MainWindow::createSetupPage() {
     profileLobbyWidget_->setUserProfile(profile);
 
     ProfileLobbyWidget::Character character;
-    character.name = QString::fromStdString(InputHandler::characterTypeToDisplayName(selectedCharacterType_));
-    character.imagePath = characterImagePath(selectedCharacterType_);
-    character.specialMoves = "Feature-based action set";
+    character.name = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
+    character.imagePath = characterImagePath(selectedPlayerType_);
+    character.specialMoves = playerSpecialMoveText(selectedPlayerType_);
     profileLobbyWidget_->setSelectedCharacter(character);
 
-    connect(profileLobbyWidget_, &ProfileLobbyWidget::enterArenaClicked, this, [this](const QString&) {
-        startDemo();
+    connect(profileLobbyWidget_, &ProfileLobbyWidget::enterArenaClicked, this, [this](const QString& modeName) {
+        // 1v1 teammate:
+        // Replace the current 1v1 "coming soon" path.
+        // Launch duel mode here using the selected opponent/background from the lobby.
+        if (modeName.compare(QStringLiteral("Save the Kings"), Qt::CaseInsensitive) == 0) {
+            startDemo();
+            return;
+        }
+
+        QMessageBox::information(this,
+                                 "Coming Soon",
+                                 QString("%1 is coming soon.\n\nSelect Save the Kings to enter the current ready combat theme.")
+                                     .arg(modeName));
     });
 
     connect(profileLobbyWidget_, &ProfileLobbyWidget::changeCharacterClicked, this, [this]() {
-        if (sortedCharacterTypes_.empty()) {
+        if (sortedPlayerTypes_.empty()) {
             return;
         }
-        currentCharacterIndex_ = (currentCharacterIndex_ + 1) % static_cast<int>(sortedCharacterTypes_.size());
-        selectedCharacterType_ = sortedCharacterTypes_[currentCharacterIndex_];
+        currentCharacterIndex_ = (currentCharacterIndex_ + 1) % static_cast<int>(sortedPlayerTypes_.size());
+        selectedPlayerType_ = sortedPlayerTypes_[currentCharacterIndex_];
 
         ProfileLobbyWidget::Character updated;
-        updated.name = QString::fromStdString(InputHandler::characterTypeToDisplayName(selectedCharacterType_));
-        updated.imagePath = characterImagePath(selectedCharacterType_);
-        updated.specialMoves = "Feature-based action set";
+        updated.name = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
+        updated.imagePath = characterImagePath(selectedPlayerType_);
+        updated.specialMoves = playerSpecialMoveText(selectedPlayerType_);
         profileLobbyWidget_->setSelectedCharacter(updated);
     });
 
@@ -437,6 +658,9 @@ QWidget* MainWindow::createProfilePage() {
 }
 
 QWidget* MainWindow::createBattlePage() {
+    // 1v1 teammate:
+    // Reuse the same battle page for duel mode.
+    // Do not build a separate combat page.
     gamePage_ = new GamePage();
     gamePage_->setGameManager(gameManager_);
     // gamePage_->setSoundManager(soundManager_); // Disabled for now
@@ -445,22 +669,43 @@ QWidget* MainWindow::createBattlePage() {
 }
 
 void MainWindow::showWelcomePage() {
+    // Sound teammate:
+    // Start welcome/intro music here.
+    if (welcomeTransitionTimer_) {
+        welcomeTransitionTimer_->start(3000);
+    }
     stack_->setCurrentWidget(welcomePage_);
 }
 
 void MainWindow::showLoginPage() {
+    // Sound teammate:
+    // Switch to login/register music or stop intro music here.
+    if (welcomeTransitionTimer_) {
+        welcomeTransitionTimer_->stop();
+    }
     stack_->setCurrentWidget(loginPage_);
 }
 
 void MainWindow::showRegistrationPage() {
+    if (welcomeTransitionTimer_) {
+        welcomeTransitionTimer_->stop();
+    }
     stack_->setCurrentWidget(registrationPage_);
 }
 
 void MainWindow::showSetupPage() {
+    // Sound teammate:
+    // Start lobby music here.
+    if (welcomeTransitionTimer_) {
+        welcomeTransitionTimer_->stop();
+    }
     stack_->setCurrentWidget(setupPage_);
 }
 
 void MainWindow::showSettingsPage() {
+    if (welcomeTransitionTimer_) {
+        welcomeTransitionTimer_->stop();
+    }
     stack_->setCurrentWidget(settingsPage_);
 }
 
@@ -508,6 +753,11 @@ void MainWindow::attemptRegistration() {
 }
 
 void MainWindow::startDemo() {
+    // 1v1 teammate:
+    // This currently starts the campaign flow.
+    // Either expand this to accept theme/setup data or add a parallel duel start path nearby.
+    // Sound teammate:
+    // Switch from lobby music to battle music here.
     QString playerName = currentLobbyUsername_.trimmed();
     if (profileLobbyWidget_) {
         playerName = profileLobbyWidget_->userProfile().username.trimmed();
@@ -517,7 +767,7 @@ void MainWindow::startDemo() {
     }
 
     // Start the game with character type
-    gameManager_->startGame(playerName.toStdString(), selectedCharacterType_);
+    gameManager_->startGame(playerName.toStdString(), selectedPlayerType_);
     stack_->setCurrentWidget(battlePage_);
     
     // Start the battle
@@ -527,6 +777,8 @@ void MainWindow::startDemo() {
 }
 
 void MainWindow::handleBattleFinished() {
+    // Ranking teammate:
+    // Update wins/losses, total score, rating, and rank around this battle-finished flow.
     QString playerName = currentLobbyUsername_;
     if (profileLobbyWidget_) {
         playerName = profileLobbyWidget_->userProfile().username;
@@ -534,7 +786,7 @@ void MainWindow::handleBattleFinished() {
 
     const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
     const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
-    const bool victory = player && player->isAlive();
+    const bool victory = player && player->isAlive() && gameManager_ && gameManager_->hasCompletedCampaign();
     const int damageDealt = enemy ? (enemy->getMaxHealth() - enemy->getHealth()) : 0;
     const int damageTaken = player ? (player->getMaxHealth() - player->getHealth()) : 0;
     const int finalScore = gameManager_ ? gameManager_->getCurrentScore() : 0;

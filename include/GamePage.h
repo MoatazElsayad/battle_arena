@@ -13,6 +13,9 @@ class GamePage : public QWidget {
     Q_OBJECT
 
 public:
+    // 1v1 teammate:
+    // Reuse this page for duel mode.
+    // The only change in duel should be flow control: one match, then finish.
     explicit GamePage(QWidget *parent = nullptr);
     ~GamePage();
 

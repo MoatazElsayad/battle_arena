@@ -35,6 +35,80 @@ QString resolveAssetPath(const QString& relativePath) {
     return QString();
 }
 
+QPixmap loadArenaBackgroundForLevel(int level) {
+    const QStringList candidates = {
+        QString("assets/backgrounds/Level_%1.png").arg(level),
+        QString("assets/backgrounds/Level_%1.jpg").arg(level),
+        QString("assets/backgrounds/Level_1.png"),
+        QString("assets/backgrounds/Level_1.jpg"),
+        QString("assets/ui/arena_background_placeholder.png")
+    };
+
+    for (const QString& candidate : candidates) {
+        const QString resolved = resolveAssetPath(candidate);
+        if (!resolved.isEmpty()) {
+            const QPixmap pixmap(resolved);
+            if (!pixmap.isNull()) {
+                return pixmap;
+            }
+        }
+    }
+
+    return QPixmap();
+}
+
+QColor sampleGroundColorFromBackground(const QPixmap& pixmap) {
+    if (pixmap.isNull()) {
+        return QColor("#5A3A23");
+    }
+
+    const QImage image = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+    if (image.isNull()) {
+        return QColor("#5A3A23");
+    }
+
+    const int startY = static_cast<int>(image.height() * 0.58);
+    const int endY = static_cast<int>(image.height() * 0.92);
+    const int stepX = qMax(1, image.width() / 96);
+    const int stepY = qMax(1, qMax(1, endY - startY) / 48);
+
+    qint64 totalR = 0;
+    qint64 totalG = 0;
+    qint64 totalB = 0;
+    qint64 samples = 0;
+
+    for (int y = startY; y < endY; y += stepY) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); x += stepX) {
+            const QRgb pixel = row[x];
+            if (qAlpha(pixel) < 8) {
+                continue;
+            }
+
+            totalR += qRed(pixel);
+            totalG += qGreen(pixel);
+            totalB += qBlue(pixel);
+            ++samples;
+        }
+    }
+
+    if (samples == 0) {
+        return QColor("#5A3A23");
+    }
+
+    QColor base(static_cast<int>(totalR / samples),
+                static_cast<int>(totalG / samples),
+                static_cast<int>(totalB / samples));
+
+    if (base.lightness() < 32) {
+        base = base.lighter(150);
+    } else if (base.lightness() > 180) {
+        base = base.darker(120);
+    }
+
+    return base;
+}
+
 QRect opaqueBounds(const QPixmap& px) {
     if (px.isNull()) {
         return QRect();
@@ -100,14 +174,29 @@ BattleWidget::BattleWidget(QWidget *parent)
     arcenProjectileSpeed_(900.0),
     arcenProjectileAnimTime_(0.0),
     arcenProjectileFrame_(0),
+    enemyProjectileActive_(false),
+    enemyProjectileExploding_(false),
+    enemyProjectileFacingRight_(false),
+    enemyProjectileType_(EnemyType::FIRE_WORM),
+    enemyProjectileDamage_(0),
+    enemyProjectileX_(0.0),
+    enemyProjectileY_(0.0),
+    enemyProjectileSpeed_(720.0),
+    enemyProjectileAnimTime_(0.0),
+    enemyProjectileFrame_(0),
+    enemyProjectileExplosionTime_(0.0),
       statusMessage_("Press A/D to move, J to attack, H to heal, ESC to pause"),
       statusDisplayTime_(0.0),
       queuedPlayerAttackState_(AnimationState::ATTACK1),
       playerHpDisplay_(1.0),
       enemyHpDisplay_(1.0),
-      score_(0) {
+      arenaGroundBaseColor_(QColor("#5A3A23")),
+        score_(0) {
+    // Sound teammate:
+    // Most combat SFX will be triggered from this class.
 
-    arenaBackgroundPlaceholder_ = QPixmap(resolveAssetPath("assets/ui/arena_background_placeholder.png"));
+    arenaBackgroundPlaceholder_ = loadArenaBackgroundForLevel(1);
+    arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
     setStyleSheet("QWidget { background-color: #22140D; }");
     setFocusPolicy(Qt::StrongFocus);
     
@@ -130,28 +219,28 @@ double BattleWidget::groundY() const {
     return arenaBottom - ARENA_FLOOR_OFFSET;
 }
 
+void BattleWidget::refreshArenaBackground() {
+    const int level = gameManager_ ? qMax(1, gameManager_->getCurrentLevel()) : 1;
+    arenaBackgroundPlaceholder_ = loadArenaBackgroundForLevel(level);
+    arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+}
+
 void BattleWidget::drawArenaBackground(QPainter &painter) {
     painter.save();
 
     const QRect fullRect = rect();
-    QLinearGradient skyGradient(fullRect.topLeft(), QPointF(fullRect.left(), fullRect.bottom()));
-    skyGradient.setColorAt(0.0, QColor("#120B08"));
-    skyGradient.setColorAt(0.38, QColor("#2A1810"));
-    skyGradient.setColorAt(0.72, QColor("#4C2F1B"));
-    skyGradient.setColorAt(1.0, QColor("#24150E"));
-    painter.fillRect(fullRect, skyGradient);
-
-    const QRectF upperGlow(0.0, 0.0, width(), height() * 0.35);
-    QLinearGradient glowGradient(upperGlow.topLeft(), upperGlow.bottomLeft());
-    glowGradient.setColorAt(0.0, QColor(255, 210, 120, 30));
-    glowGradient.setColorAt(1.0, QColor(255, 210, 120, 0));
-    painter.fillRect(upperGlow, glowGradient);
 
     if (!arenaBackgroundPlaceholder_.isNull()) {
-        painter.setOpacity(0.2);
-        painter.drawPixmap(fullRect, arenaBackgroundPlaceholder_);
         painter.setOpacity(1.0);
+        painter.drawPixmap(fullRect, arenaBackgroundPlaceholder_);
     } else {
+        QLinearGradient skyGradient(fullRect.topLeft(), QPointF(fullRect.left(), fullRect.bottom()));
+        skyGradient.setColorAt(0.0, QColor("#120B08"));
+        skyGradient.setColorAt(0.38, QColor("#2A1810"));
+        skyGradient.setColorAt(0.72, QColor("#4C2F1B"));
+        skyGradient.setColorAt(1.0, QColor("#24150E"));
+        painter.fillRect(fullRect, skyGradient);
+
         painter.setPen(QPen(QColor(255, 220, 160, 18), 2, Qt::DashLine));
         const QRect placeholderRect(46, 96, width() - 92, height() - 188);
         painter.drawRoundedRect(placeholderRect, 28, 28);
@@ -163,32 +252,28 @@ void BattleWidget::drawArenaBackground(QPainter &painter) {
                          "Arena Background Placeholder\nDrop your background image here later");
     }
 
-    const QRectF crowdBand(0.0, height() * 0.18, width(), height() * 0.18);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(15, 8, 5, 110));
-    for (int i = 0; i < 18; ++i) {
-        const qreal w = 40 + (i % 4) * 22;
-        const qreal h = 26 + (i % 3) * 10;
-        const qreal x = (width() / 18.0) * i - 12;
-        const qreal y = crowdBand.bottom() - h + ((i % 2) ? 6 : 0);
-        painter.drawEllipse(QRectF(x, y, w, h));
-    }
+    QLinearGradient atmosphere(fullRect.topLeft(), QPointF(fullRect.left(), fullRect.bottom()));
+    atmosphere.setColorAt(0.0, QColor(12, 8, 6, 110));
+    atmosphere.setColorAt(0.35, QColor(22, 13, 8, 58));
+    atmosphere.setColorAt(1.0, QColor(18, 12, 8, 140));
+    painter.fillRect(fullRect, atmosphere);
+
+    const QRectF upperGlow(0.0, 0.0, width(), height() * 0.35);
+    QLinearGradient glowGradient(upperGlow.topLeft(), upperGlow.bottomLeft());
+    glowGradient.setColorAt(0.0, QColor(255, 210, 120, 30));
+    glowGradient.setColorAt(1.0, QColor(255, 210, 120, 0));
+    painter.fillRect(upperGlow, glowGradient);
 
     const double floorY = groundY();
     const QRectF floorRect(0.0, floorY - 6.0, width(), height() - floorY + 6.0);
     QLinearGradient floorGradient(floorRect.topLeft(), floorRect.bottomLeft());
-    floorGradient.setColorAt(0.0, QColor("#6A4528"));
-    floorGradient.setColorAt(0.45, QColor("#4E311D"));
-    floorGradient.setColorAt(1.0, QColor("#26170F"));
+    floorGradient.setColorAt(0.0, arenaGroundBaseColor_.lighter(116));
+    floorGradient.setColorAt(0.45, arenaGroundBaseColor_);
+    floorGradient.setColorAt(1.0, arenaGroundBaseColor_.darker(150));
     painter.fillRect(floorRect, floorGradient);
 
-    painter.setPen(QPen(QColor("#C9A35A"), 3));
+    painter.setPen(QPen(arenaGroundBaseColor_.lighter(132), 3));
     painter.drawLine(QPointF(0.0, floorY), QPointF(width(), floorY));
-
-    painter.setPen(QPen(QColor(255, 230, 180, 28), 1));
-    for (int i = 0; i < width(); i += 56) {
-        painter.drawLine(QPointF(i, floorY + 18), QPointF(i + 36, floorY + 40));
-    }
 
     painter.restore();
 }
@@ -198,12 +283,17 @@ void BattleWidget::setGameManager(GameManager *gm) {
 }
 
 void BattleWidget::setSoundManager(SoundManager *sm) {
+    // Sound teammate:
+    // Use the shared SoundManager here for all combat sounds.
     soundManager_ = sm;
 }
 
 void BattleWidget::startBattle() {
+    // Sound teammate:
+    // Play battle start / wave start sound here.
     if (!gameManager_) return;
 
+    refreshArenaBackground();
     loadPrototypeAnimations();
     
     // Reset animation states
@@ -221,8 +311,27 @@ void BattleWidget::startBattle() {
     const double arenaRight = qMax(arenaLeft + 220.0, double(width()) - ARENA_RIGHT_MARGIN - 70.0);
     playerX_ = arenaLeft;
     enemyX_ = arenaRight;
-    statusMessage_ = "Battle started!";
+    if (playerAnimChar_) {
+        playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
+    }
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+    }
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    if (enemy) {
+        statusMessage_ = QString("Stage %1/%2 - %3 enters the arena!")
+                             .arg(gameManager_->getCurrentLevel())
+                             .arg(gameManager_->getTotalLevels())
+                             .arg(QString::fromStdString(enemy->getName()));
+    } else {
+        statusMessage_ = "Battle started!";
+    }
     statusDisplayTime_ = 2.0;
+    enemyProjectileActive_ = false;
+    enemyProjectileExploding_ = false;
+    enemyProjectileAnimTime_ = 0.0;
+    enemyProjectileFrame_ = 0;
+    enemyProjectileExplosionTime_ = 0.0;
     
     elapsedTimer_.start();
     frameTimer_.start();
@@ -257,6 +366,7 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
                              QString::fromStdString(player->getName()), playerAnimChar_, true);
 
     drawArcenProjectile(painter);
+    drawEnemyProjectile(painter);
     
     // Draw HUD and status
     drawHUD(painter);
@@ -352,9 +462,9 @@ void BattleWidget::drawStatus(QPainter &painter) {
 void BattleWidget::keyPressEvent(QKeyEvent *event) {
     if (event->isAutoRepeat()) return;
 
-    CharacterType playerType = CharacterType::KNIGHT;
+    PlayerType playerType = PlayerType::KNIGHT;
     if (gameManager_) {
-        playerType = gameManager_->getSelectedCharacterType();
+        playerType = gameManager_->getSelectedPlayerType();
     }
 
     auto rejectAction = [this](const QString &text) {
@@ -503,6 +613,13 @@ void BattleWidget::advanceFrame() {
     if (introLockTime_ <= 0.0) {
         updateEnemyAI(dt);
     }
+
+    if (playerAnimChar_) {
+        playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
+    }
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+    }
     
     // Combat
     if (healPressed_) {
@@ -519,6 +636,7 @@ void BattleWidget::advanceFrame() {
     }
 
     updateArcenProjectile(dt);
+    updateEnemyProjectile(dt);
     
     update();
 }
@@ -597,8 +715,8 @@ void BattleWidget::tryPlayerAttack(double dt) {
         playerAnimChar_->setAnimationState(queuedPlayerAttackState_);
     }
 
-    const CharacterType playerType = gameManager_ ? gameManager_->getSelectedCharacterType() : CharacterType::KNIGHT;
-    if (playerType == CharacterType::ARCEN) {
+    const PlayerType playerType = gameManager_ ? gameManager_->getSelectedPlayerType() : PlayerType::KNIGHT;
+    if (playerType == PlayerType::ARCEN) {
         int damage = player->calculateDamage();
         if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
             damage = static_cast<int>(damage * 1.2);
@@ -662,13 +780,68 @@ void BattleWidget::tryEnemyAttack(double dt) {
     
     if (!player || !enemy) return;
     
+    const EnemyType enemyType = enemy->getEnemyType();
     double distToPlayer = std::abs(playerX_ - enemyX_);
-    
+    const int roll = std::rand() % 100;
+
+    const bool prefersProjectile = (enemyType == EnemyType::FIRE_WORM ||
+                                    enemyType == EnemyType::NIGHTWEAVER ||
+                                    enemyType == EnemyType::FLYING_DEMON);
+    double projectileRange = ATTACK_RANGE + 180.0;
+    if (enemyType == EnemyType::FIRE_WORM) {
+        projectileRange = ATTACK_RANGE + 360.0;
+    } else if (enemyType == EnemyType::NIGHTWEAVER) {
+        projectileRange = ATTACK_RANGE + 260.0;
+    } else if (enemyType == EnemyType::FLYING_DEMON) {
+        projectileRange = ATTACK_RANGE + 240.0;
+    }
+
+    const bool shouldUseProjectile =
+        prefersProjectile &&
+        !enemyProjectileActive_ &&
+        distToPlayer <= projectileRange &&
+        distToPlayer > ATTACK_RANGE * 0.75 &&
+        ((enemyType == EnemyType::FIRE_WORM) ||
+         (enemyType == EnemyType::NIGHTWEAVER && roll >= 28) ||
+         (enemyType == EnemyType::FLYING_DEMON && roll >= 42));
+
+    if (shouldUseProjectile) {
+        int damage = enemy->calculateDamage();
+        if (enemyType == EnemyType::NIGHTWEAVER) {
+            damage = static_cast<int>(damage * 1.15);
+        } else if (enemyType == EnemyType::FLYING_DEMON) {
+            damage = static_cast<int>(damage * 1.1);
+        }
+
+        if (enemyAnimChar_) {
+            enemyAnimChar_->setAnimationState(AnimationState::ATTACK2);
+        }
+
+        spawnEnemyProjectile(enemyType, damage);
+        enemyCooldown_ = ENEMY_ATTACK_COOLDOWN + 0.25;
+        statusMessage_ = enemyType == EnemyType::FIRE_WORM ? "Fire Worm launches a fireball!"
+                      : enemyType == EnemyType::FLYING_DEMON ? "Flying Demon hurls a hellfire orb!"
+                                                             : "Nightweaver fires a shadow bolt!";
+        statusDisplayTime_ = 1.3;
+        return;
+    }
+
     if (distToPlayer <= ATTACK_RANGE) {
         int damage = enemy->calculateDamage();
         AnimationState enemyAttackAnim = AnimationState::ATTACK1;
-        const int roll = std::rand() % 100;
-        if (roll < 45) {
+        if (enemyType == EnemyType::EVIL_WIZARD) {
+            if (roll < 52) {
+                enemyAttackAnim = AnimationState::ATTACK1;
+            } else {
+                enemyAttackAnim = AnimationState::ATTACK2;
+                damage = static_cast<int>(damage * 1.18);
+            }
+        } else if (enemyType == EnemyType::FIRE_WIZARD) {
+            enemyAttackAnim = (roll < 55) ? AnimationState::ATTACK1 : AnimationState::ATTACK2;
+            if (enemyAttackAnim == AnimationState::ATTACK2) {
+                damage = static_cast<int>(damage * 1.12);
+            }
+        } else if (roll < 45) {
             enemyAttackAnim = AnimationState::ATTACK1;
         } else if (roll < 78) {
             enemyAttackAnim = AnimationState::ATTACK2;
@@ -707,7 +880,7 @@ void BattleWidget::tryEnemyAttack(double dt) {
     }
 }
 
-void BattleWidget::loadCharacterAnimations(CharacterType type) {
+void BattleWidget::loadCharacterAnimations(PlayerType type) {
     if (!playerAnimManager_) return;
 
     playerFallbackSprite_ = QPixmap();
@@ -717,7 +890,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
 
     // Determine character folder and animation parameters
     switch (type) {
-        case CharacterType::KNIGHT:
+        case PlayerType::KNIGHT:
             basePath = resolveAssetPath("assets/players/Knight/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 7, basePath + "/IDLE.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/RUN.png", true, 95);
@@ -728,7 +901,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 90);
             break;
 
-        case CharacterType::DEMON_SLAYER:
+        case PlayerType::DEMON_SLAYER:
             basePath = resolveAssetPath("assets/players/Demon_Slayer/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 4, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -739,7 +912,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
             break;
 
-        case CharacterType::FANTASY_WARRIOR:
+        case PlayerType::FANTASY_WARRIOR:
             basePath = resolveAssetPath("assets/players/Fantasy_Warrior/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -750,7 +923,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
             break;
 
-        case CharacterType::HUNTRESS:
+        case PlayerType::HUNTRESS:
             basePath = resolveAssetPath("assets/players/Huntress/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -761,7 +934,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
             break;
 
-        case CharacterType::ARCEN:
+        case PlayerType::ARCEN:
             basePath = resolveAssetPath("assets/players/Arcen/Sprites/Character");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -774,7 +947,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             arcenArrowMoveSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Move.png"));
             break;
 
-        case CharacterType::MARTIAL:
+        case PlayerType::MARTIAL:
             basePath = resolveAssetPath("assets/players/Martial/Sprite");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -785,7 +958,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take Hit.png", false, 90);
             break;
 
-        case CharacterType::MARTIAL_HERO:
+        case PlayerType::MARTIAL_HERO:
             basePath = resolveAssetPath("assets/players/Martial_Hero/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -796,7 +969,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Take Hit.png", false, 90);
             break;
 
-        case CharacterType::MEDIEVAL_WARRIOR:
+        case PlayerType::MEDIEVAL_WARRIOR:
             basePath = resolveAssetPath("assets/players/Medieval_Warrior/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 6, basePath + "/Run.png", true, 95);
@@ -807,7 +980,7 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
             break;
 
-        case CharacterType::WIZARD:
+        case PlayerType::WIZARD:
             basePath = resolveAssetPath("assets/players/Wizard/Sprites");
             playerAnimManager_->loadAnimation(AnimationState::IDLE, 6, basePath + "/Idle.png", true, 150);
             playerAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
@@ -835,15 +1008,15 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
     QString idlePath;
     int idleFrames = 7; // Default
     switch (type) {
-        case CharacterType::KNIGHT: idlePath = basePath + "/IDLE.png"; idleFrames = 7; break;
-        case CharacterType::DEMON_SLAYER: idlePath = basePath + "/Idle.png"; idleFrames = 4; break;
-        case CharacterType::FANTASY_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
-        case CharacterType::HUNTRESS: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
-        case CharacterType::ARCEN: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
-        case CharacterType::MARTIAL: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
-        case CharacterType::MARTIAL_HERO: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
-        case CharacterType::MEDIEVAL_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
-        case CharacterType::WIZARD: idlePath = basePath + "/Idle.png"; idleFrames = 6; break;
+        case PlayerType::KNIGHT: idlePath = basePath + "/IDLE.png"; idleFrames = 7; break;
+        case PlayerType::DEMON_SLAYER: idlePath = basePath + "/Idle.png"; idleFrames = 4; break;
+        case PlayerType::FANTASY_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::HUNTRESS: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case PlayerType::ARCEN: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::MARTIAL: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::MARTIAL_HERO: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case PlayerType::MEDIEVAL_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::WIZARD: idlePath = basePath + "/Idle.png"; idleFrames = 6; break;
         default: break;
     }
 
@@ -851,6 +1024,96 @@ void BattleWidget::loadCharacterAnimations(CharacterType type) {
     if (!idleSheet.isNull()) {
         const int frameWidth = idleSheet.width() / idleFrames;
         playerFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
+    }
+}
+
+void BattleWidget::loadEnemyAnimations(EnemyType type) {
+    if (!enemyAnimManager_) return;
+
+    enemyFallbackSprite_ = QPixmap();
+    enemyProjectileMoveSprite_ = QPixmap();
+    enemyProjectileExplodeSprite_ = QPixmap();
+    QString basePath;
+    QString idlePath;
+    int idleFrames = 1;
+
+    switch (type) {
+        case EnemyType::FIRE_WORM:
+            basePath = resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Worm");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 9, basePath + "/Idle.png", true, 140);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 9, basePath + "/Walk.png", true, 105);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 16, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 16, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 16, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 8, basePath + "/Death.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
+            enemyProjectileMoveSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Move.png"));
+            enemyProjectileExplodeSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Explosion.png"));
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 9;
+            break;
+
+        case EnemyType::FIRE_WIZARD:
+            basePath = resolveAssetPath("assets/enemies/Fire_Wizard/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Move.png", true, 105);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, basePath + "/Attack.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, basePath + "/Attack.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 5, basePath + "/Death.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Take Hit.png", false, 90);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 8;
+            break;
+
+        case EnemyType::FLYING_DEMON:
+            basePath = resolveAssetPath("assets/enemies/Flying_Demon/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 4, basePath + "/IDLE.png", true, 180);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 4, basePath + "/FLYING.png", true, 105);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, basePath + "/ATTACK.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, basePath + "/ATTACK.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/ATTACK.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/DEATH.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 95);
+            enemyProjectileMoveSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Move.png"));
+            enemyProjectileExplodeSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Explosion.png"));
+            idlePath = basePath + "/IDLE.png";
+            idleFrames = 4;
+            break;
+
+        case EnemyType::NIGHTWEAVER:
+            basePath = resolveAssetPath("assets/enemies/Nightweaver/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 100);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 13, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 13, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 13, basePath + "/Attack.png", false, 55);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 18, basePath + "/Death.png", false, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get hit.png", false, 90);
+            enemyProjectileMoveSprite_ = QPixmap(resolveAssetPath("assets/enemies/Nightweaver/Sprites/Projectile/Moving.png"));
+            enemyProjectileExplodeSprite_ = QPixmap(resolveAssetPath("assets/enemies/Nightweaver/Sprites/Projectile/Explode.png"));
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 10;
+            break;
+
+        case EnemyType::EVIL_WIZARD:
+            basePath = resolveAssetPath("assets/enemies/Evil_Wizard/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 100);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, basePath + "/Attack2.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack2.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 8;
+            break;
+    }
+
+    QPixmap idleSheet(idlePath);
+    if (!idleSheet.isNull() && idleFrames > 0) {
+        const int frameWidth = idleSheet.width() / idleFrames;
+        enemyFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
     }
 }
 
@@ -868,26 +1131,11 @@ void BattleWidget::loadPrototypeAnimations() {
     arcenProjectileFrame_ = 0;
 
     // Load player animations based on selected character
-    loadCharacterAnimations(player->getCharacterType());
+    loadCharacterAnimations(player->getPlayerType());
 
-    // Enemy is always Flying Demon
-    const QString flyingDemonBase = resolveAssetPath("../../Battle_Arena/assets/Flying Demon 2D Pixel Art/Sprites/with_outline");
-    enemyFallbackSprite_ = QPixmap();
-
-    if (!flyingDemonBase.isEmpty()) {
-        enemyAnimManager_->loadAnimation(AnimationState::IDLE, 4, flyingDemonBase + "/IDLE.png", true, 180);
-        enemyAnimManager_->loadAnimation(AnimationState::RUN, 4, flyingDemonBase + "/FLYING.png", true, 105);
-        enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, flyingDemonBase + "/ATTACK.png", false, 60);
-        enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, flyingDemonBase + "/ATTACK.png", false, 60);
-        enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, flyingDemonBase + "/ATTACK.png", false, 60);
-        enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, flyingDemonBase + "/DEATH.png", false, 120);
-        enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, flyingDemonBase + "/HURT.png", false, 95);
-
-        QPixmap demonIdle(flyingDemonBase + "/IDLE.png");
-        if (!demonIdle.isNull()) {
-            const int frameWidth = demonIdle.width() / 4;
-            enemyFallbackSprite_ = demonIdle.copy(0, 0, frameWidth, demonIdle.height());
-        }
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    if (enemy) {
+        loadEnemyAnimations(enemy->getEnemyType());
     }
 }
 
@@ -959,6 +1207,102 @@ void BattleWidget::updateArcenProjectile(double dt) {
     }
 }
 
+void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
+    enemyProjectileActive_ = true;
+    enemyProjectileExploding_ = false;
+    enemyProjectileType_ = type;
+    enemyProjectileDamage_ = qMax(1, damage);
+    enemyProjectileFacingRight_ = playerX_ >= enemyX_;
+    enemyProjectileAnimTime_ = 0.0;
+    enemyProjectileFrame_ = 0;
+    enemyProjectileExplosionTime_ = 0.0;
+    enemyProjectileSpeed_ = (type == EnemyType::FIRE_WORM) ? 520.0
+                         : (type == EnemyType::FLYING_DEMON) ? 640.0
+                                                             : 760.0;
+
+    const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
+    const qreal desiredEnemyHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    const qreal projectileHeightRatio = (type == EnemyType::FIRE_WORM) ? 0.28
+                                    : (type == EnemyType::FLYING_DEMON) ? 0.72
+                                                                        : 0.68;
+    enemyProjectileY_ = groundY() - desiredEnemyHeight * projectileHeightRatio;
+    enemyProjectileX_ = enemyX_ + (enemyProjectileFacingRight_ ? 46.0 : -46.0);
+}
+
+void BattleWidget::updateEnemyProjectile(double dt) {
+    if (!enemyProjectileActive_) {
+        return;
+    }
+
+    enemyProjectileAnimTime_ += dt;
+
+    if (enemyProjectileExploding_) {
+        enemyProjectileExplosionTime_ += dt;
+        if (enemyProjectileExplosionTime_ >= 0.08) {
+            enemyProjectileExplosionTime_ = 0.0;
+            ++enemyProjectileFrame_;
+        }
+
+        const int maxExplosionFrames = 7;
+        if (enemyProjectileFrame_ >= maxExplosionFrames) {
+            enemyProjectileActive_ = false;
+            enemyProjectileExploding_ = false;
+        }
+        return;
+    }
+
+    if (enemyProjectileAnimTime_ >= 0.08) {
+        enemyProjectileAnimTime_ = 0.0;
+        const int maxMoveFrames = (enemyProjectileType_ == EnemyType::FIRE_WORM ||
+                                   enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 6 : 4;
+        enemyProjectileFrame_ = (enemyProjectileFrame_ + 1) % maxMoveFrames;
+    }
+
+    const double dir = enemyProjectileFacingRight_ ? 1.0 : -1.0;
+    enemyProjectileX_ += dir * enemyProjectileSpeed_ * dt;
+
+    Player *player = gameManager_ ? const_cast<Player*>(gameManager_->getPlayer()) : nullptr;
+    if (!player || !player->isAlive()) {
+        enemyProjectileActive_ = false;
+        return;
+    }
+
+    if (enemyProjectileX_ < ARENA_LEFT_X || enemyProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
+        enemyProjectileActive_ = false;
+        return;
+    }
+
+    const double hitDistance = std::abs(enemyProjectileX_ - playerX_);
+    if (hitDistance <= ENEMY_PROJECTILE_HIT_WIDTH) {
+        player->takeDamage(enemyProjectileDamage_);
+        if (playerAnimChar_) {
+            playerAnimChar_->takeDamage();
+        }
+
+        statusMessage_ = enemyProjectileType_ == EnemyType::FIRE_WORM
+                             ? QString("Fireball hit! Took %1 damage!").arg(enemyProjectileDamage_)
+                             : QString("Shadow bolt hit! Took %1 damage!").arg(enemyProjectileDamage_);
+        statusDisplayTime_ = 1.2;
+
+        enemyProjectileExploding_ = !enemyProjectileExplodeSprite_.isNull();
+        enemyProjectileFrame_ = 0;
+        enemyProjectileAnimTime_ = 0.0;
+        enemyProjectileExplosionTime_ = 0.0;
+
+        if (!enemyProjectileExploding_) {
+            enemyProjectileActive_ = false;
+        }
+
+        if (!player->isAlive()) {
+            statusMessage_ = "Defeat! You were defeated!";
+            statusDisplayTime_ = 3.0;
+            if (playerAnimChar_) {
+                playerAnimChar_->kill();
+            }
+        }
+    }
+}
+
 void BattleWidget::drawArcenProjectile(QPainter &painter) {
     if (!arcenProjectileActive_) {
         return;
@@ -1004,6 +1348,46 @@ void BattleWidget::drawArcenProjectile(QPainter &painter) {
     }
 
     painter.drawPixmap(QRectF(arcenProjectileX_ - w * 0.5, arcenProjectileY_ - h * 0.5, w, h),
+                       sprite, QRectF(0, 0, sprite.width(), sprite.height()));
+    painter.restore();
+}
+
+void BattleWidget::drawEnemyProjectile(QPainter &painter) {
+    if (!enemyProjectileActive_) {
+        return;
+    }
+
+    QPixmap spriteSheet = enemyProjectileExploding_ ? enemyProjectileExplodeSprite_ : enemyProjectileMoveSprite_;
+    if (spriteSheet.isNull()) {
+        return;
+    }
+
+    const int frameCount = enemyProjectileExploding_
+                               ? 7
+                               : ((enemyProjectileType_ == EnemyType::FIRE_WORM ||
+                                   enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 6 : 4);
+    const int frameWidth = qMax(1, spriteSheet.width() / qMax(1, frameCount));
+    const int frameHeight = spriteSheet.height();
+    const int frameIndex = qBound(0, enemyProjectileFrame_, frameCount - 1);
+    const QPixmap sprite = spriteSheet.copy(frameIndex * frameWidth, 0, frameWidth, frameHeight);
+
+    const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
+    const qreal desiredEnemyHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    const qreal spriteScale = (enemyProjectileType_ == EnemyType::FIRE_WORM) ? 0.26
+                             : (enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 0.23
+                                                                                  : 0.22;
+    const qreal scale = desiredEnemyHeight * spriteScale / qMax(1, sprite.height());
+    const qreal w = sprite.width() * scale;
+    const qreal h = sprite.height() * scale;
+
+    painter.save();
+    if (!enemyProjectileFacingRight_ && !enemyProjectileExploding_) {
+        painter.translate(enemyProjectileX_, 0.0);
+        painter.scale(-1.0, 1.0);
+        painter.translate(-enemyProjectileX_, 0.0);
+    }
+
+    painter.drawPixmap(QRectF(enemyProjectileX_ - w * 0.5, enemyProjectileY_ - h * 0.5, w, h),
                        sprite, QRectF(0, 0, sprite.width(), sprite.height()));
     painter.restore();
 }
@@ -1152,7 +1536,7 @@ void BattleWidget::drawHUD(QPainter &painter) {
     painter.setFont(levelFont);
     painter.setPen(QColor("#F3D38C"));
     painter.drawText(scorePanel.adjusted(0, 0, 0, 8), Qt::AlignHCenter | Qt::AlignBottom,
-                     QString("LEVEL %1").arg(gameManager_->getPlayerLevel()));
+                     QString("STAGE %1 / %2").arg(gameManager_->getCurrentLevel()).arg(gameManager_->getTotalLevels()));
 }
 
 void BattleWidget::tryPlayerHeal() {
@@ -1177,7 +1561,23 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
     if (!animChar) return;
 
     const double arenaHeight = height() - 160.0;
-    const double desiredVisibleHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    double desiredVisibleHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+    bool flipSprite = false;
+
+    if (isPlayer) {
+        flipSprite = playerAnimChar_->isFacingLeft();
+    } else {
+        const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+        const EnemyType enemyType = enemy ? enemy->getEnemyType() : EnemyType::FIRE_WORM;
+        if (enemyType == EnemyType::EVIL_WIZARD) {
+            desiredVisibleHeight *= 1.2;
+        }
+
+        flipSprite = enemyAnimChar_->isFacingLeft();
+        if (enemyType == EnemyType::FLYING_DEMON) {
+            flipSprite = !flipSprite;
+        }
+    }
 
     const QPixmap frame = animChar->getCurrentFrame();
     if (frame.isNull()) {
@@ -1212,7 +1612,7 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
     QRectF destRect(drawX, drawY, scaledWidth, scaledHeight);
 
     // Flip horizontally if needed
-    if ((isPlayer && playerAnimChar_->isFacingLeft()) || (!isPlayer && enemyAnimChar_->isFacingLeft())) {
+    if (flipSprite) {
         painter.save();
         painter.translate(destRect.center().x(), 0);
         painter.scale(-1, 1);

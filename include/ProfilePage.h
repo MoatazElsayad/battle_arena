@@ -14,6 +14,9 @@ class ProfilePage : public QWidget {
     Q_OBJECT
 
 public:
+    // Ranking teammate:
+    // ProfilePage can show the detailed progression view:
+    // score, rank, rating, wins, losses, and matches if needed.
     explicit ProfilePage(QWidget *parent = nullptr);
     ~ProfilePage();
 

@@ -4,6 +4,13 @@
 #include <QStandardPaths>
 #include <QFile>
 
+// Sound teammate:
+// Do the main sound implementation work in this file.
+// Keep version 1 simple:
+// - load assets
+// - play short SFX
+// - switch music cleanly by page/state
+
 SoundManager::SoundManager()
     : backgroundMusic_(nullptr),
       soundVolume_(80),
@@ -25,6 +32,13 @@ SoundManager::~SoundManager() {
 }
 
 void SoundManager::initialize() {
+    // Sound teammate:
+    // Expand loading here for:
+    // - welcome music
+    // - lobby music
+    // - battle music
+    // - UI sounds
+    // - player/enemy action sounds
     // Create media player for background music
     backgroundMusic_ = new QMediaPlayer();
 
@@ -38,6 +52,8 @@ void SoundManager::initialize() {
 }
 
 void SoundManager::loadSound(const QString &name, const QString &path) {
+    // Sound teammate:
+    // Keep all asset loading centralized here.
     // Check if file exists
     if (!QFile::exists(path)) {
         // Silently skip if file doesn't exist (development mode)

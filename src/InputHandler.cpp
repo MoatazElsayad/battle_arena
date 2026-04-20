@@ -22,25 +22,25 @@ std::string normalizeName(const std::string& value) {
     return normalized;
 }
 
-std::string characterAssetFolder(CharacterType type) {
+std::string characterAssetFolder(PlayerType type) {
     switch (type) {
-        case CharacterType::ARCEN:
+        case PlayerType::ARCEN:
             return "Arcen";
-        case CharacterType::DEMON_SLAYER:
+        case PlayerType::DEMON_SLAYER:
             return "Demon_Slayer";
-        case CharacterType::FANTASY_WARRIOR:
+        case PlayerType::FANTASY_WARRIOR:
             return "Fantasy_Warrior";
-        case CharacterType::HUNTRESS:
+        case PlayerType::HUNTRESS:
             return "Huntress";
-        case CharacterType::KNIGHT:
+        case PlayerType::KNIGHT:
             return "Knight";
-        case CharacterType::MARTIAL:
+        case PlayerType::MARTIAL:
             return "Martial";
-        case CharacterType::MARTIAL_HERO:
+        case PlayerType::MARTIAL_HERO:
             return "Martial_Hero";
-        case CharacterType::MEDIEVAL_WARRIOR:
+        case PlayerType::MEDIEVAL_WARRIOR:
             return "Medieval_Warrior";
-        case CharacterType::WIZARD:
+        case PlayerType::WIZARD:
             return "Wizard";
         default:
             return "";
@@ -92,7 +92,7 @@ bool isSpriteImageFile(const fs::path& filePath, const fs::path& characterRoot) 
     return false;
 }
 
-CharacterFeatureSet featureSetFor(CharacterType type) {
+CharacterFeatureSet featureSetFor(PlayerType type) {
     static std::unordered_map<int, CharacterFeatureSet> cache;
     int key = static_cast<int>(type);
     auto found = cache.find(key);
@@ -101,7 +101,7 @@ CharacterFeatureSet featureSetFor(CharacterType type) {
     }
 
     // Hardcode Arcen features since it uses a single Attack.png for all attacks
-    if (type == CharacterType::ARCEN) {
+    if (type == PlayerType::ARCEN) {
         CharacterFeatureSet arcenFeatures{1, {"attack"}, 3, false, false};
         cache[key] = arcenFeatures;
         return arcenFeatures;
@@ -155,7 +155,7 @@ CharacterFeatureSet featureSetFor(CharacterType type) {
     }
 
     // Arcen uses the same Attack.png for all 3 attacks, so we need to ensure it reports 3 attacks
-    if (type == CharacterType::ARCEN && features.attackOptions < 3) {
+    if (type == PlayerType::ARCEN && features.attackOptions < 3) {
         features.attackOptions = 3;
     }
 
@@ -194,11 +194,11 @@ void InputHandler::reset() {
     justPressed.clear();
 }
 
-CharacterFeatureSet InputHandler::getCharacterFeatures(CharacterType type) {
+CharacterFeatureSet InputHandler::getCharacterFeatures(PlayerType type) {
     return featureSetFor(type);
 }
 
-bool InputHandler::canPerformAction(CharacterType type, PlayerAction action) {
+bool InputHandler::canPerformAction(PlayerType type, PlayerAction action) {
     CharacterFeatureSet features = featureSetFor(type);
 
     switch (action) {
@@ -221,59 +221,59 @@ bool InputHandler::canPerformAction(CharacterType type, PlayerAction action) {
     }
 }
 
-int InputHandler::countActionFeatures(CharacterType type) {
+int InputHandler::countActionFeatures(PlayerType type) {
     return featureSetFor(type).featureScore();
 }
 
-std::vector<std::string> InputHandler::getCharacterFeatureNames(CharacterType type) {
+std::vector<std::string> InputHandler::getCharacterFeatureNames(PlayerType type) {
     return featureSetFor(type).featureNames;
 }
 
-std::string InputHandler::characterTypeToDisplayName(CharacterType type) {
+std::string InputHandler::playerTypeToDisplayName(PlayerType type) {
     switch (type) {
-        case CharacterType::ARCEN:
+        case PlayerType::ARCEN:
             return "Arcen";
-        case CharacterType::DEMON_SLAYER:
+        case PlayerType::DEMON_SLAYER:
             return "Demon Slayer";
-        case CharacterType::FANTASY_WARRIOR:
+        case PlayerType::FANTASY_WARRIOR:
             return "Fantasy Warrior";
-        case CharacterType::HUNTRESS:
+        case PlayerType::HUNTRESS:
             return "Huntress";
-        case CharacterType::KNIGHT:
+        case PlayerType::KNIGHT:
             return "Knight";
-        case CharacterType::MARTIAL:
+        case PlayerType::MARTIAL:
             return "Martial";
-        case CharacterType::MARTIAL_HERO:
+        case PlayerType::MARTIAL_HERO:
             return "Martial Hero";
-        case CharacterType::MEDIEVAL_WARRIOR:
+        case PlayerType::MEDIEVAL_WARRIOR:
             return "Medieval Warrior";
-        case CharacterType::WIZARD:
+        case PlayerType::WIZARD:
             return "Wizard";
         default:
             return "Unknown";
     }
 }
 
-std::vector<CharacterType> InputHandler::getCharactersSortedByFeatures() {
-    std::vector<CharacterType> characters = {
-        CharacterType::ARCEN,
-        CharacterType::DEMON_SLAYER,
-        CharacterType::FANTASY_WARRIOR,
-        CharacterType::HUNTRESS,
-        CharacterType::KNIGHT,
-        CharacterType::MARTIAL,
-        CharacterType::MARTIAL_HERO,
-        CharacterType::MEDIEVAL_WARRIOR,
-        CharacterType::WIZARD
+std::vector<PlayerType> InputHandler::getCharactersSortedByFeatures() {
+    std::vector<PlayerType> characters = {
+        PlayerType::ARCEN,
+        PlayerType::DEMON_SLAYER,
+        PlayerType::FANTASY_WARRIOR,
+        PlayerType::HUNTRESS,
+        PlayerType::KNIGHT,
+        PlayerType::MARTIAL,
+        PlayerType::MARTIAL_HERO,
+        PlayerType::MEDIEVAL_WARRIOR,
+        PlayerType::WIZARD
     };
 
-    std::stable_sort(characters.begin(), characters.end(), [](CharacterType a, CharacterType b) {
+    std::stable_sort(characters.begin(), characters.end(), [](PlayerType a, PlayerType b) {
         int aScore = InputHandler::countActionFeatures(a);
         int bScore = InputHandler::countActionFeatures(b);
         if (aScore != bScore) {
             return aScore < bScore;
         }
-        return InputHandler::characterTypeToDisplayName(a) < InputHandler::characterTypeToDisplayName(b);
+        return InputHandler::playerTypeToDisplayName(a) < InputHandler::playerTypeToDisplayName(b);
     });
 
     return characters;

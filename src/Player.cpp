@@ -1,11 +1,11 @@
 // Player.cpp - Player implementation
 #include "Player.h"
 
-Player::Player(int hp, int maxHp, float x, float y, float speed, int attackPower, CharacterType type)
+Player::Player(int hp, int maxHp, float x, float y, float speed, int attackPower, PlayerType type)
     : Character(hp, maxHp, x, y, speed, attackPower),
       score(0),
     input(nullptr),
-    characterType_(type),
+    playerType_(type),
     features_(InputHandler::getCharacterFeatures(type)) {}
 
 Player::~Player() {}
@@ -29,7 +29,7 @@ int Player::getScore() const {
     return score;
 }
 
-void Player::setCharacterType(CharacterType type) {
-    characterType_ = type;
+void Player::setPlayerType(PlayerType type) {
+    playerType_ = type;
     features_ = InputHandler::getCharacterFeatures(type);
 }

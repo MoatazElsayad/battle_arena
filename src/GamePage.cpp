@@ -46,6 +46,8 @@ void GamePage::setGameManager(GameManager *gm) {
 }
 
 void GamePage::setSoundManager(SoundManager *sm) {
+    // Sound teammate:
+    // SoundManager passes through this page into BattleWidget.
     soundManager_ = sm;
     
     if (battleWidget_) {
@@ -54,6 +56,8 @@ void GamePage::setSoundManager(SoundManager *sm) {
 }
 
 void GamePage::startBattle() {
+    // 1v1 teammate:
+    // Same battle handling should be reused for duel mode.
     if (battleWidget_) {
         battleWidget_->startBattle();
     }
@@ -75,6 +79,11 @@ void GamePage::updateStats() {
 }
 
 void GamePage::onBattleFinished() {
+    // 1v1 teammate:
+    // Save the Kings can still advance levels here.
+    // Duel mode should stop after this one result and return to the normal finish flow.
+    // Sound teammate:
+    // Good place for victory/defeat/level-clear sounds before page flow continues.
     battleWidget_->stopBattle();
     
     const Player *player = gameManager_->getPlayer();
@@ -83,10 +92,12 @@ void GamePage::onBattleFinished() {
     if (!player || !enemy) return;
     
     if (player->isAlive()) {
-        if (playerInfoLabel_) {
-            playerInfoLabel_->setText("Victory! Press ESC to continue...");
+        gameManager_->addScore(50 + gameManager_->getCurrentLevel() * 15);
+
+        if (gameManager_->advanceToNextLevel()) {
+            startBattle();
+            return;
         }
-        gameManager_->addScore(50 + gameManager_->getPlayerLevel() * 10);
     } else {
         if (playerInfoLabel_) {
             playerInfoLabel_->setText("Defeat! Press ESC to continue...");

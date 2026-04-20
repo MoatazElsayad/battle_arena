@@ -7,6 +7,12 @@
 class QSoundEffect;
 class QMediaPlayer;
 
+// Sound teammate:
+// Expand this as the single simple sound hub for the game.
+// Main groups to cover:
+// - welcome/login/lobby/battle music
+// - UI click / confirm / reject
+// - attack / hit / heal / death / enemy death / run / projectile
 class SoundManager {
 public:
     SoundManager();
@@ -15,6 +21,9 @@ public:
     // Initialize sound manager
     void initialize();
 
+    // Sound teammate:
+    // You can replace these with clearer grouped methods if needed.
+    // Keep the public API easy for MainWindow, ProfileLobbyWidget, GamePage, and BattleWidget.
     // Sound effect methods
     void playAttack();        // Sword slash sound
     void playHit();           // Impact/damage sound

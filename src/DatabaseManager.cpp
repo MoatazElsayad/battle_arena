@@ -3,6 +3,13 @@
 #include "DatabaseManager.h"
 #include <algorithm>
 
+// Ranking teammate:
+// Do most persistence work for progression in this file.
+// Keep it simple:
+// - save progression
+// - load progression
+// - update wins/losses/score/rating/rank
+
 DatabaseManager::DatabaseManager() {
     initializeDatabase();
 }
@@ -14,6 +21,8 @@ bool DatabaseManager::initializeDatabase() {
 }
 
 bool DatabaseManager::saveScore(const std::string& playerName, int score, int level) {
+    // Ranking teammate:
+    // Keep leaderboard score saving here, but also add/update long-term player progression nearby.
     if (playerName.empty() || score < 0 || level < 1) {
         return false;
     }

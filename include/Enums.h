@@ -10,7 +10,7 @@ enum class GameState {
     GAME_OVER
 };
 
-enum class CharacterType {
+enum class PlayerType {
     ARCEN,
     DEMON_SLAYER,
     FANTASY_WARRIOR,
@@ -19,8 +19,15 @@ enum class CharacterType {
     MARTIAL,
     MARTIAL_HERO,
     MEDIEVAL_WARRIOR,
-    WIZARD,
-    FLYING_DEMON
+    WIZARD
+};
+
+enum class EnemyType {
+    FIRE_WORM,
+    FIRE_WIZARD,
+    FLYING_DEMON,
+    NIGHTWEAVER,
+    EVIL_WIZARD
 };
 
 enum class DifficultyLevel {
