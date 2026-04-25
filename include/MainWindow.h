@@ -40,6 +40,7 @@ private slots:
     void showSetupPage();
     void showSettingsPage();
     void startDemo();
+    void startDuelMode();
     void attemptLogin();
     void attemptRegistration();
     void handleBattleFinished();

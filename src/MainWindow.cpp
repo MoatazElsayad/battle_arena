@@ -596,11 +596,11 @@ QWidget* MainWindow::createSetupPage() {
             return;
         }
 
-        QMessageBox::information(this,
-                                 "Coming Soon",
-                                 QString("%1 is coming soon.\n\nSelect Save the Kings to enter the current ready combat theme.")
-                                     .arg(modeName));
-    });
+        if (modeName.compare(QStringLiteral("1v1 Fight"), Qt::CaseInsensitive) == 0 ||
+            modeName.compare(QStringLiteral("1v1 Fight (Duel)"), Qt::CaseInsensitive) == 0) {
+            startDuelMode();
+            return;
+        }
 
     connect(profileLobbyWidget_, &ProfileLobbyWidget::changeCharacterClicked, this, [this]() {
         if (sortedPlayerTypes_.empty()) {
@@ -767,7 +767,7 @@ void MainWindow::startDemo() {
     }
 
     // Start the game with character type
-    gameManager_->startGame(playerName.toStdString(), selectedPlayerType_);
+    gameManager_->startCampaign(playerName.toStdString(), selectedPlayerType_);
     stack_->setCurrentWidget(battlePage_);
     
     // Start the battle
@@ -776,6 +776,32 @@ void MainWindow::startDemo() {
     }
 }
 
+void MainWindow::startDuelMode(){QString playerName = currentLobbyUsername_.trimmed();
+        
+        if (profileLobbyWidget_) {
+            playerName = profileLobbyWidget_->userProfile().username.trimmed();
+        }
+
+        if (playerName.isEmpty()) {
+            playerName = "Player_01";
+        }
+
+        DuelConfig config;
+
+        if (profileLobbyWidget_) {
+            config = profileLobbyWidget_->duelConfig();
+        }
+
+        gameManager_->startDuel(playerName.toStdString(), selectedPlayerType_, config);
+
+        stack_->setCurrentWidget(battlePage_);
+
+        if (gamePage_) {
+            gamePage_->startBattle();
+        }
+    }
+            
+            
 void MainWindow::handleBattleFinished() {
     // Ranking teammate:
     // Update wins/losses, total score, rating, and rank around this battle-finished flow.
@@ -786,7 +812,14 @@ void MainWindow::handleBattleFinished() {
 
     const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
     const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
-    const bool victory = player && player->isAlive() && gameManager_ && gameManager_->hasCompletedCampaign();
+        
+    const bool victory =
+            gameManager_ &&
+            (
+                (gameManager_->isDuelMode() && gameManager_->didWinDuel()) ||
+                (!gameManager_->isDuelMode() && player && player->isAlive() && gameManager_->hasCompletedCampaign())
+            );
+        
     const int damageDealt = enemy ? (enemy->getMaxHealth() - enemy->getHealth()) : 0;
     const int damageTaken = player ? (player->getMaxHealth() - player->getHealth()) : 0;
     const int finalScore = gameManager_ ? gameManager_->getCurrentScore() : 0;
