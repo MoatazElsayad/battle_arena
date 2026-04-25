@@ -74,6 +74,7 @@ public slots:
     void setSelectedCharacter(const Character& character);
     void setSelectedMode(const QString& modeName);
     void setDuelSetup(const DuelSetup& setup) { duelSetup_ = setup; }
+    void updateProgression(const PlayerProgression& stats);
 
 signals:
     void enterArenaClicked(const QString& modeName);

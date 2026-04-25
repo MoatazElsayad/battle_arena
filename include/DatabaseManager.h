@@ -10,6 +10,15 @@ struct ScoreEntry {
     int level;
 };
 
+struct PlayerProgression {
+    int totalScore = 0;       // Accumulated score over time 
+    int wins = 0;             // Total number of wins
+    int losses = 0;           // Total number of losses
+    int totalMatches = 0;     // Total matches played
+    double currentRating = 0.0; // Cumulative rating out of 5 
+    std::string currentRank = "Wanderer"; // Current ladder position 
+};
+
 // Ranking teammate:
 // Expand DatabaseManager to store progression data, not only top scores.
 // Main data to support:
@@ -23,6 +32,9 @@ class DatabaseManager {
 public:
     DatabaseManager();
     ~DatabaseManager() = default;
+
+    bool saveProgression(const PlayerProgression& data); 
+    PlayerProgression loadProgression();
 
     // Ranking teammate:
     // This is the main persistence layer for score/rating/rank.
@@ -38,6 +50,7 @@ public:
 private:
     // For demo purposes, we'll use in-memory storage
     std::vector<ScoreEntry> scores;
+    PlayerProgression currentStats;
 };
 
 #endif // DATABASEMANAGER_H

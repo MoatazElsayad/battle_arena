@@ -74,6 +74,11 @@ public:
     Player* getPlayer() const;
     Enemy* getCurrentEnemy() const;
 
+    // Ranking and Scoring Helpers
+    static int calculateRewardForMatch(RunMode mode, bool victory, int stagesCleared, bool fullClear);
+    static std::string calculateRankFromScore(int totalScore);
+    static double calculateRatingFromStats(int totalWins, int totalMatches);
+
 signals:
     void battleFinished();
 

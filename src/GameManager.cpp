@@ -298,3 +298,51 @@ void GameManager::spawnEnemyForCurrentLevel() {
                               definition.speed,
                               definition.attack);
 }
+/*
+ Calculates the score reward based on match type and performance.
+ Duel: +50 for win, +10 for loss.
+ Campaign: +50 per stage, +150 bonus for full clear, +10 for early defeat.
+ */
+int GameManager::calculateRewardForMatch(RunMode mode, bool victory, int stagesCleared, bool fullClear) {
+    if (mode == RunMode::DUEL) {
+        return victory ? 50 : 10;
+    }
+    else { // Campaign (Save the Kings)
+        if (fullClear) {
+            return (stagesCleared * 50) + 150;
+        }
+        return (stagesCleared > 0) ? (stagesCleared * 50) : 10;
+    }
+}
+
+//Returns the fantasy rank title based on the player's accumulated score.
+std::string GameManager::calculateRankFromScore(int totalScore) {
+    if (totalScore >= 9000) return "Immortal";
+    if (totalScore >= 6500) return "Legend";
+    if (totalScore >= 4500) return "High Champion";
+    if (totalScore >= 3200) return "Champion";
+    if (totalScore >= 2200) return "Warlord";
+    if (totalScore >= 1400) return "Elite Knight";
+    if (totalScore >= 800)  return "Knight";
+    if (totalScore >= 400)  return "Gladiator";
+    if (totalScore >= 150)  return "Squire";
+    return "Wanderer";
+}
+
+// Calculates a 5-star rating based on the player's win percentage.
+double GameManager::calculateRatingFromStats(int totalWins, int totalMatches) {
+    if (totalMatches <= 0) return 0.0;
+
+    double winPercent = (static_cast<double>(totalWins) / totalMatches) * 100.0;
+
+    if (winPercent >= 95.0) return 5.0;
+    if (winPercent >= 85.0) return 4.5;
+    if (winPercent >= 75.0) return 4.0;
+    if (winPercent >= 65.0) return 3.5;
+    if (winPercent >= 55.0) return 3.0;
+    if (winPercent >= 45.0) return 2.5;
+    if (winPercent >= 35.0) return 2.0;
+    if (winPercent >= 25.0) return 1.5;
+    if (winPercent >= 10.0) return 1.0;
+    return 0.5;
+}

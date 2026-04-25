@@ -1646,3 +1646,10 @@ bool ProfileLobbyWidget::eventFilter(QObject* watched, QEvent* event) {
 
     return QWidget::eventFilter(watched, event);
 }
+
+void ProfileLobbyWidget::updateProgression(const PlayerProgression& stats) {
+   
+    ui->labelRank->setText(QString::fromStdString(stats.currentRank));
+    ui->labelScore->setText(QString("Score: %1").arg(stats.totalScore));
+    ui->labelRating->setText(QString("Rating: %1 / 5").arg(stats.currentRating, 0, 'f', 1));
+}

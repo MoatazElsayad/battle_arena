@@ -169,4 +169,16 @@ void ProfilePage::on_characterCombo_currentTextChanged(const QString &text) {
     selectedCharacterType_ = text;
     emit characterTypeChanged(text);
 }
+void ProfilePage::updateProgression(const PlayerProgression& stats) {
+    ui->valTotalScore->setText(QString::number(stats.totalScore));
+    ui->valRank->setText(QString::fromStdString(stats.currentRank));
+    ui->valRating->setText(QString("%1 / 5.0").arg(stats.currentRating, 0, 'f', 1));
+    ui->valWins->setText(QString::number(stats.wins));
+    ui->valLosses->setText(QString::number(stats.losses));
+    ui->valMatches->setText(QString::number(stats.totalMatches));
 
+    // Optional: Calculate and show Win %
+    double winRate = (stats.totalMatches > 0) ?
+        (static_cast<double>(stats.wins) / stats.totalMatches) * 100.0 : 0.0;
+    ui->valWinRate->setText(QString("%1%").arg(winRate, 0, 'f', 1));
+}

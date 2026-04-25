@@ -2,6 +2,7 @@
 
 #include "DatabaseManager.h"
 #include <algorithm>
+#include <QSettings>
 
 // Ranking teammate:
 // Do most persistence work for progression in this file.
@@ -12,6 +13,44 @@
 
 DatabaseManager::DatabaseManager() {
     initializeDatabase();
+}
+
+// Implement the progression persistence logic
+bool DatabaseManager::saveProgression(const PlayerProgression& data) {
+    QSettings settings("MyGameCompany", "Gladiators");
+
+    settings.beginGroup("PlayerProfile");
+    settings.setValue("totalScore", data.totalScore); [cite:79]
+        settings.setValue("wins", data.wins); [cite:80]
+        settings.setValue("losses", data.losses); [cite:81]
+        settings.setValue("totalMatches", data.totalMatches); [cite:82]
+        settings.setValue("currentRating", data.currentRating); [cite:84]
+        settings.setValue("currentRank", QString::fromStdString(data.currentRank)); [cite:83]
+        settings.endGroup();
+
+    currentStats = data; // Keep the internal memory in sync
+    return true;
+}
+
+// Support loading progression data
+PlayerProgression DatabaseManager::loadProgression() {
+    QSettings settings("MyGameCompany", "Gladiators");
+    PlayerProgression data;
+
+    settings.beginGroup("PlayerProfile");
+    data.totalScore = settings.value("totalScore", 0).toInt(); [cite:79]
+        data.wins = settings.value("wins", 0).toInt(); [cite:80]
+        data.losses = settings.value("losses", 0).toInt(); [cite:81]
+        data.totalMatches = settings.value("totalMatches", 0).toInt(); [cite:82]
+        data.currentRating = settings.value("currentRating", 0.0).toDouble(); [cite:84]
+
+        // Default to Wanderer if no rank exists
+        QString savedRank = settings.value("currentRank", "Wanderer").toString();
+    data.currentRank = savedRank.toStdString(); [cite:83]
+        settings.endGroup();
+
+    currentStats = data; // Store it locally for easy access
+    return data;
 }
 
 bool DatabaseManager::initializeDatabase() {

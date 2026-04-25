@@ -803,36 +803,66 @@ void MainWindow::startDuelMode(){QString playerName = currentLobbyUsername_.trim
             
             
 void MainWindow::handleBattleFinished() {
-    // Ranking teammate:
-    // Update wins/losses, total score, rating, and rank around this battle-finished flow.
+    // 1. Identify the player and the current battle results
     QString playerName = currentLobbyUsername_;
     if (profileLobbyWidget_) {
         playerName = profileLobbyWidget_->userProfile().username;
     }
 
-    const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
-    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
-        
-    const bool victory =
-            gameManager_ &&
-            (
-                (gameManager_->isDuelMode() && gameManager_->didWinDuel()) ||
-                (!gameManager_->isDuelMode() && player && player->isAlive() && gameManager_->hasCompletedCampaign())
-            );
-        
+    const Player* player = gameManager_ ? gameManager_->getPlayer() : nullptr;
+    const Enemy* enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+
+    // Determine victory based on mode
+    bool victory = false;
+    if (gameManager_) {
+        if (gameManager_->isDuelMode()) {
+            victory = gameManager_->didWinDuel();
+        }
+        else {
+            victory = (player && player->isAlive() && gameManager_->hasCompletedCampaign());
+        }
+    }
+
+    // 2. Progression Logic: Load, Update, and Save
+    PlayerProgression stats = databaseManager_->loadProgression();
+
+    RunMode mode = gameManager_->getRunMode();
+    int stages = gameManager_->getCurrentLevel();
+    bool fullClear = (!gameManager_->isDuelMode() && gameManager_->hasCompletedCampaign());
+
+    // Calculate reward using the math logic in GameManager
+    int reward = GameManager::calculateRewardForMatch(mode, victory, stages, fullClear);
+
+    // Update the struct
+    stats.totalScore += reward;
+    stats.totalMatches++;
+    if (victory) stats.wins++; else stats.losses++;
+
+    // Re-calculate Rank and Rating based on new totals
+    stats.currentRank = GameManager::calculateRankFromScore(stats.totalScore);
+    stats.currentRating = GameManager::calculateRatingFromStats(stats.wins, stats.totalMatches);
+
+    // Save back to the database
+    databaseManager_->saveProgression(stats);
+
+    // 3. Update the Game Over UI
     const int damageDealt = enemy ? (enemy->getMaxHealth() - enemy->getHealth()) : 0;
     const int damageTaken = player ? (player->getMaxHealth() - player->getHealth()) : 0;
-    const int finalScore = gameManager_ ? gameManager_->getCurrentScore() : 0;
 
     if (gameOverPage_) {
         gameOverPage_->setResult(victory);
-        gameOverPage_->setBattleStats(damageDealt, damageTaken, finalScore);
+        // We show the reward earned this session on the game over screen
+        gameOverPage_->setBattleStats(damageDealt, damageTaken, reward);
     }
 
     showGameOverPage();
 
+    // 4. Trigger UI refresh for Lobby and Profile
+    refreshProfile();
+
+    // Legacy highscore support (optional)
     if (!playerName.trimmed().isEmpty()) {
-        databaseManager_->saveResult(playerName.trimmed().toStdString(), finalScore);
+        databaseManager_->saveResult(playerName.trimmed().toStdString(), stats.totalScore);
     }
 }
 
@@ -841,23 +871,27 @@ void MainWindow::restartDemo() {
 }
 
 void MainWindow::refreshProfile() {
-    QString playerName = currentLobbyUsername_;
+    // 1. Fetch the latest data from the database
+    PlayerProgression stats = databaseManager_->loadProgression();
+
+    // 2. Update the Lobby Summary Widget
     if (profileLobbyWidget_) {
-        playerName = profileLobbyWidget_->userProfile().username;
-    }
-    if (playerName.trimmed().isEmpty()) {
-        return;
-    }
+        // Update the username if it changed
+        ProfileLobbyWidget::UserProfile profile = profileLobbyWidget_->userProfile();
+        profile.username = currentLobbyUsername_;
+        profileLobbyWidget_->setUserProfile(profile);
 
-    if (auto *profile = qobject_cast<ProfilePage*>(profilePage_)) {
-        profile->setUsername(playerName);
-        profile->setScore(gameManager_ ? gameManager_->getCurrentScore() : 0);
-
-        const int level = gameManager_ ? gameManager_->getPlayerLevel() : 1;
-        const QString rank = (level < 5) ? "Beginner" : (level < 10) ? "Intermediate" : "Veteran";
-        profile->setRank(rank);
+        // Update the Rank/Score/Rating labels
+        profileLobbyWidget_->updateProgression(stats);
     }
 
+    // 3. Update the Detailed Profile Page
+    if (auto* pPage = qobject_cast<ProfilePage*>(profilePage_)) {
+        pPage->setUsername(currentLobbyUsername_);
+        pPage->updateProgression(stats);
+    }
+
+    // 4. Update the Leaderboard
     updateHighScores();
 }
 

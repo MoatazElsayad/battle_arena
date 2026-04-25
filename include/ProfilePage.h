@@ -25,6 +25,7 @@ public:
     void setRank(const QString &rank);
     void setCharacterType(const QString &type);
     QString getCharacterType() const;
+    void updateProgression(const PlayerProgression& stats);
 
 signals:
     void playClicked();
