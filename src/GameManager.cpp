@@ -63,7 +63,9 @@ GameManager::GameManager(QObject *parent)
       player_(nullptr),
       currentEnemy_(nullptr),
       selectedPlayerType_(PlayerType::KNIGHT),
-      campaignCompleted_(false) {
+      campaignCompleted_(false)
+    runMode_(RunMode::CAMPAIGN),
+    duelVictory_(false){
     if (rand() == 0) srand(time(nullptr)); // seed random once
 }
 
@@ -72,13 +74,10 @@ GameManager::~GameManager() {
     delete currentEnemy_;
 }
 
-void GameManager::startGame(const std::string &playerName, PlayerType playerType) {
-    // 1v1 teammate:
-    // Split setup here by theme:
-    // - Save the Kings = current campaign flow
-    // - 1v1 = one match only with chosen/random opponent and chosen background
-    // Ranking teammate:
-    // Keep track of enough battle context here for reward calculation after the match.
+void GameManager::startCampaign(const std::string &playerName, PlayerType playerType) {
+    runMode_ = RunMode::CAMPAIGN;
+    duelVictory_ = false;
+
     playerName_ = playerName;
     selectedPlayerType_ = playerType;
     currentScore_ = 0;
@@ -91,16 +90,91 @@ void GameManager::startGame(const std::string &playerName, PlayerType playerType
     player_ = nullptr;
 
     const PlayerStats playerStats = statsForPlayer(playerType);
-    player_ = new Player(playerStats.hp, playerStats.hp, 150.0f, 400.0f, 200.0f, playerStats.attack, playerType);
+    player_ = new Player(
+        playerStats.hp,
+        playerStats.hp,
+        150.0f,
+        400.0f,
+        200.0f,
+        playerStats.attack,
+        playerType
+    );
+
     player_->setName(playerName);
 
     spawnEnemyForCurrentLevel();
+}
+void GameManager::startDuel(const std::string &playerName,
+                            PlayerType playerType,
+                            const DuelConfig& config) {
+    runMode_ = RunMode::DUEL;
+    duelConfig_ = config;
+    duelVictory_ = false;
+
+    playerName_ = playerName;
+    selectedPlayerType_ = playerType;
+    currentScore_ = 0;
+    playerLevel_ = 1;
+    currentLevel_ = 1;
+    campaignCompleted_ = false;
+    state_ = GameState::PLAYING;
+
+    delete player_;
+    player_ = nullptr;
+
+    const PlayerStats playerStats = statsForPlayer(playerType);
+    player_ = new Player(
+        playerStats.hp,
+        playerStats.hp,
+        150.0f,
+        400.0f,
+        200.0f,
+        playerStats.attack,
+        playerType
+    );
+
+    player_->setName(playerName);
+
+    delete currentEnemy_;
+    currentEnemy_ = nullptr;
+
+    if (config.opponentMode == DuelOpponentMode::RANDOM) {
+        const int randomIndex = rand() % static_cast<int>(kEnemyCampaign.size());
+        const EnemyDefinition &definition = kEnemyCampaign[randomIndex];
+
+        currentEnemy_ = new Enemy(
+            definition.type,
+            definition.name,
+            definition.hp,
+            definition.hp,
+            700.0f,
+            400.0f,
+            definition.speed,
+            definition.attack
+        );
+    } else {
+        currentEnemy_ = new Enemy(
+            config.manualEnemyOpponent,
+            "Duel Challenger",
+            110,
+            110,
+            700.0f,
+            400.0f,
+            150.0f,
+            16
+        );
+    }
 }
 
 bool GameManager::advanceToNextLevel() {
     // 1v1 teammate:
     // Duel mode should not advance through campaign levels.
     // For 1v1, battle should end after one match.
+    if (runMode_ == RunMode::DUEL) {
+        duelVictory_ = true;
+        state_ = GameState::GAME_OVER;
+        return false;
+    }
     if (campaignCompleted_) {
         return false;
     }
@@ -125,6 +199,9 @@ bool GameManager::advanceToNextLevel() {
 void GameManager::finishBattle() {
     // Ranking teammate:
     // Good place to finalize match result info before progression is updated outside.
+    if (runMode_ == RunMode::DUEL && player_ && player_->isAlive()) {
+        duelVictory_ = true;
+    }
     if (state_ == GameState::PLAYING) {
         state_ = GameState::GAME_OVER;
         emit battleFinished();
@@ -185,6 +262,22 @@ Player* GameManager::getPlayer() const {
 
 Enemy* GameManager::getCurrentEnemy() const {
     return currentEnemy_;
+}
+
+RunMode GameManager::getRunMode() const {
+    return runMode_;
+}
+
+DuelConfig GameManager::getDuelConfig() const {
+    return duelConfig_;
+}
+
+bool GameManager::isDuelMode() const {
+    return runMode_ == RunMode::DUEL;
+}
+
+bool GameManager::didWinDuel() const {
+    return duelVictory_;
 }
 
 void GameManager::spawnEnemyForCurrentLevel() {
