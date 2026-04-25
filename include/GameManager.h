@@ -4,11 +4,37 @@
 #include <QObject>
 #include <string>
 #include <memory>
+#include <QString>
 
 #include "Enums.h"
 
 class Player;
 class Enemy;
+
+enum class RunMode {
+    CAMPAIGN,
+    DUEL
+};
+
+enum class DuelOpponentMode {
+    RANDOM,
+    MANUAL
+};
+
+enum class DuelOpponentCategory {
+    PLAYER_TYPE,
+    ENEMY_TYPE
+};
+
+struct DuelConfig {
+    DuelOpponentMode opponentMode = DuelOpponentMode::RANDOM;
+    DuelOpponentCategory category = DuelOpponentCategory::ENEMY_TYPE;
+
+    PlayerType manualPlayerOpponent = PlayerType::KNIGHT;
+    EnemyType manualEnemyOpponent = EnemyType::FIRE_WORM;
+
+    QString selectedArena = "Default";
+};
 
 class GameManager : public QObject {
     Q_OBJECT
@@ -25,7 +51,8 @@ public:
     // Ranking teammate:
     // GameManager should calculate battle rewards and expose enough result info
     // so MainWindow/DatabaseManager can update progression cleanly.
-    void startGame(const std::string &playerName, PlayerType playerType);
+    void startCampaign(const std::string &playerName, PlayerType playerType);
+    void startDuel(const std::string &playerName, PlayerType playerType, const DuelConfig& config);
     bool advanceToNextLevel();
     void finishBattle();
     void addScore(int amount);
@@ -38,6 +65,11 @@ public:
     GameState getState() const;
     PlayerType getSelectedPlayerType() const;
     bool hasCompletedCampaign() const;
+    
+    RunMode getRunMode() const;
+    DuelConfig getDuelConfig() const;
+    bool isDuelMode() const;
+    bool didWinDuel() const;
     
     Player* getPlayer() const;
     Enemy* getCurrentEnemy() const;
@@ -64,6 +96,9 @@ private:
     Enemy* currentEnemy_;
     PlayerType selectedPlayerType_;
     bool campaignCompleted_;
+    RunMode runMode_;
+    DuelConfig duelConfig_;
+    bool duelVictory_;
 };
 
 #endif // GAMEMANAGER_H
