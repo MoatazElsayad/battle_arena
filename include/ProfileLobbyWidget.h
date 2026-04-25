@@ -53,6 +53,14 @@ public:
         QString description;
         bool recommended = false;
     };
+    struct DuelSetup {
+        QString opponentMode;      // "Random" / "Manual"
+        QString opponentCategory;   // "Player" / "Enemy"
+        QString selectedOpponent;   // optional identifier
+        QString selectedArena;
+    };
+    
+    DuelSetup duelConfig() const { return duelSetup_; }
 
     explicit ProfileLobbyWidget(QWidget* parent = nullptr);
     ~ProfileLobbyWidget() override;
@@ -65,6 +73,7 @@ public slots:
     void setUserProfile(const UserProfile& profile);
     void setSelectedCharacter(const Character& character);
     void setSelectedMode(const QString& modeName);
+    void setDuelSetup(const DuelSetup& setup) { duelSetup_ = setup; }
 
 signals:
     void enterArenaClicked(const QString& modeName);
@@ -112,6 +121,7 @@ private:
     UserProfile userProfile_;
     Character selectedCharacter_;
     QString selectedModeName_;
+    DuelSetup duelSetup_;
 
     QLabel* logoLabel_;
     QLabel* usernameLabel_;

@@ -33,7 +33,7 @@ struct DuelConfig {
     PlayerType manualPlayerOpponent = PlayerType::KNIGHT;
     EnemyType manualEnemyOpponent = EnemyType::FIRE_WORM;
 
-    QString selectedArena = "Default";
+    QString selectedArena = QStringLiteral("Default");
 };
 
 class GameManager : public QObject {
