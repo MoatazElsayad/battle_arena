@@ -1,4 +1,4 @@
-
+	
 cmake_minimum_required(VERSION 3.16)
 project(Gladiators VERSION 1.0.0 LANGUAGES CXX)
 
@@ -9,7 +9,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 COMPONENTS Widgets REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Multimedia REQUIRED)
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
@@ -32,6 +32,7 @@ add_executable(${PROJECT_NAME}
     src/ProfileLobbyWidget.cpp
     src/Registration.cpp
     src/SettingsPage.cpp
+    src/SoundManager.cpp
 
     include/AnimatedCharacter.h
     include/AnimationManager.h
@@ -53,6 +54,7 @@ add_executable(${PROJECT_NAME}
     include/ProfileLobbyWidget.h
     include/Registration.h
     include/SettingsPage.h
+    include/SoundManager.h
 
     ui/GameOverPage.ui
     ui/LoginPage.ui
@@ -72,4 +74,5 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         Qt6::Widgets
+        Qt6::Multimedia
 )

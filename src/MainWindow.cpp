@@ -14,6 +14,7 @@
 #include "InputHandler.h"
 #include "Player.h"
 #include "Enemy.h"
+#include "SoundManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -262,8 +263,8 @@ MainWindow::MainWindow(QWidget *parent)
     // Sound teammate:
     // Re-enable and initialize SoundManager here.
     // MainWindow is the best place to switch music for welcome/login/lobby/battle/game-over.
-    // soundManager_ = new SoundManager(); // Disabled for now
-    // soundManager_->initialize();
+    soundManager_ = new SoundManager();
+    soundManager_->initialize();
 
     welcomeTransitionTimer_->setSingleShot(true);
     connect(welcomeTransitionTimer_, &QTimer::timeout, this, &MainWindow::showLoginPage);
@@ -278,7 +279,7 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow() {
     if (gameManager_) delete gameManager_;
     if (databaseManager_) delete databaseManager_;
-    // if (soundManager_) delete soundManager_; // Disabled for now
+    if (soundManager_) delete soundManager_;
 }
 
 void MainWindow::setLoggedInUsername(const QString &username) {
@@ -663,14 +664,14 @@ QWidget* MainWindow::createBattlePage() {
     // Do not build a separate combat page.
     gamePage_ = new GamePage();
     gamePage_->setGameManager(gameManager_);
-    // gamePage_->setSoundManager(soundManager_); // Disabled for now
+    gamePage_->setSoundManager(soundManager_);
     connect(gamePage_, &GamePage::battleFinished, this, &MainWindow::handleBattleFinished);
     return gamePage_;
 }
 
 void MainWindow::showWelcomePage() {
     // Sound teammate:
-    // Start welcome/intro music here.
+    if (soundManager_) soundManager_->playWelcomeMusic();
     if (welcomeTransitionTimer_) {
         welcomeTransitionTimer_->start(3000);
     }
@@ -679,7 +680,7 @@ void MainWindow::showWelcomePage() {
 
 void MainWindow::showLoginPage() {
     // Sound teammate:
-    // Switch to login/register music or stop intro music here.
+    if (soundManager_) soundManager_->playWelcomeMusic();
     if (welcomeTransitionTimer_) {
         welcomeTransitionTimer_->stop();
     }
@@ -687,6 +688,8 @@ void MainWindow::showLoginPage() {
 }
 
 void MainWindow::showRegistrationPage() {
+
+    if (soundManager_) soundManager_->playWelcomeMusic();
     if (welcomeTransitionTimer_) {
         welcomeTransitionTimer_->stop();
     }
@@ -695,14 +698,15 @@ void MainWindow::showRegistrationPage() {
 
 void MainWindow::showSetupPage() {
     // Sound teammate:
-    // Start lobby music here.
-    if (welcomeTransitionTimer_) {
+    if (soundManager_) soundManager_->playLobbyMusic();
+        if (welcomeTransitionTimer_) {
         welcomeTransitionTimer_->stop();
     }
     stack_->setCurrentWidget(setupPage_);
 }
 
 void MainWindow::showSettingsPage() {
+    if (soundManager_) soundManager_->playLobbyMusic();
     if (welcomeTransitionTimer_) {
         welcomeTransitionTimer_->stop();
     }
@@ -768,6 +772,7 @@ void MainWindow::startDemo() {
 
     // Start the game with character type
     gameManager_->startCampaign(playerName.toStdString(), selectedPlayerType_);
+    if (soundManager_) soundManager_->playBattleMusic();
     stack_->setCurrentWidget(battlePage_);
     
     // Start the battle
@@ -776,7 +781,8 @@ void MainWindow::startDemo() {
     }
 }
 
-void MainWindow::startDuelMode(){QString playerName = currentLobbyUsername_.trimmed();
+void MainWindow::startDuelMode(){
+    QString playerName = currentLobbyUsername_.trimmed();
         
         if (profileLobbyWidget_) {
             playerName = profileLobbyWidget_->userProfile().username.trimmed();
@@ -793,7 +799,7 @@ void MainWindow::startDuelMode(){QString playerName = currentLobbyUsername_.trim
         }
 
         gameManager_->startDuel(playerName.toStdString(), selectedPlayerType_, config);
-
+        if (soundManager_) soundManager_->playBattleMusic();
         stack_->setCurrentWidget(battlePage_);
 
         if (gamePage_) {

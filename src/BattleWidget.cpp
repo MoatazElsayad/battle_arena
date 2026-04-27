@@ -2,6 +2,7 @@
 #include "GameManager.h"
 #include "Player.h"
 #include "Enemy.h"
+#include "SoundManager.h"
 #include "AnimatedCharacter.h"
 #include "AnimationManager.h"
 #include "InputHandler.h"
@@ -714,7 +715,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(queuedPlayerAttackState_);
     }
-
+    if (soundManager_) soundManager_->playAttack();
     const PlayerType playerType = gameManager_ ? gameManager_->getSelectedPlayerType() : PlayerType::KNIGHT;
     if (playerType == PlayerType::ARCEN) {
         int damage = player->calculateDamage();
@@ -751,6 +752,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
         enemy->takeDamage(damage);
         score_ += damage * 10;
         
+        if (soundManager_) soundManager_->playHit();
         // Trigger enemy hurt animation
         if (enemyAnimChar_) {
             enemyAnimChar_->takeDamage();
@@ -760,6 +762,8 @@ void BattleWidget::tryPlayerAttack(double dt) {
         statusDisplayTime_ = 1.0;
         
         if (!enemy->isAlive()) {
+
+            if (soundManager_) soundManager_->playEnemyDeath();
             statusMessage_ = "Victory! Enemy defeated!";
             statusDisplayTime_ = 3.0;
             if (enemyAnimChar_) {
@@ -852,6 +856,7 @@ void BattleWidget::tryEnemyAttack(double dt) {
         }
 
         player->takeDamage(damage);
+        if (soundManager_) soundManager_->playHit();
         
         // Trigger enemy attack animation
         if (enemyAnimChar_) {
@@ -868,6 +873,8 @@ void BattleWidget::tryEnemyAttack(double dt) {
         statusDisplayTime_ = 1.5;
         
         if (!player->isAlive()) {
+            if (soundManager_) soundManager_->playDeath();
+
             statusMessage_ = "Defeat! You were defeated!";
             statusDisplayTime_ = 3.0;
             if (playerAnimChar_) {
@@ -1150,6 +1157,9 @@ void BattleWidget::spawnArcenProjectile(int damage) {
     const qreal desiredPlayerHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
     arcenProjectileY_ = groundY() - desiredPlayerHeight * ARCEN_ARROW_LAUNCH_HEIGHT_RATIO;
     arcenProjectileX_ = playerX_ + (arcenProjectileFacingRight_ ? 45.0 : -45.0);
+
+    if (soundManager_) soundManager_->playProjectile();
+
 }
 
 void BattleWidget::updateArcenProjectile(double dt) {
@@ -1186,6 +1196,7 @@ void BattleWidget::updateArcenProjectile(double dt) {
     if (hitDistance <= ARCEN_PROJECTILE_HIT_WIDTH) {
         enemy->takeDamage(arcenProjectileDamage_);
         score_ += arcenProjectileDamage_ * 10;
+        if (soundManager_) soundManager_->playHit();
 
         if (enemyAnimChar_) {
             enemyAnimChar_->takeDamage();
@@ -1195,6 +1206,8 @@ void BattleWidget::updateArcenProjectile(double dt) {
         statusDisplayTime_ = 1.0;
 
         if (!enemy->isAlive()) {
+            if (soundManager_) soundManager_->playEnemyDeath();
+
             statusMessage_ = "Victory! Enemy defeated!";
             statusDisplayTime_ = 3.0;
             if (enemyAnimChar_) {
@@ -1227,6 +1240,7 @@ void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
                                                                         : 0.68;
     enemyProjectileY_ = groundY() - desiredEnemyHeight * projectileHeightRatio;
     enemyProjectileX_ = enemyX_ + (enemyProjectileFacingRight_ ? 46.0 : -46.0);
+    if (soundManager_) soundManager_->playProjectile();
 }
 
 void BattleWidget::updateEnemyProjectile(double dt) {
@@ -1275,6 +1289,7 @@ void BattleWidget::updateEnemyProjectile(double dt) {
     const double hitDistance = std::abs(enemyProjectileX_ - playerX_);
     if (hitDistance <= ENEMY_PROJECTILE_HIT_WIDTH) {
         player->takeDamage(enemyProjectileDamage_);
+        if (soundManager_) soundManager_->playHit();
         if (playerAnimChar_) {
             playerAnimChar_->takeDamage();
         }
@@ -1294,6 +1309,8 @@ void BattleWidget::updateEnemyProjectile(double dt) {
         }
 
         if (!player->isAlive()) {
+            if (soundManager_) soundManager_->playDeath();
+
             statusMessage_ = "Defeat! You were defeated!";
             statusDisplayTime_ = 3.0;
             if (playerAnimChar_) {
@@ -1547,6 +1564,7 @@ void BattleWidget::tryPlayerHeal() {
     
     player->takeDamage(-25); // Heal 25 HP
     healCooldown_ = 5.0; // 5 second cooldown
+    if (soundManager_) soundManager_->playHeal();
     
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(AnimationState::IDLE); // Play idle as heal pose

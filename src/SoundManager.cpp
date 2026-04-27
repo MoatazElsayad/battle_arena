@@ -1,62 +1,60 @@
 #include "SoundManager.h"
+
 #include <QSoundEffect>
 #include <QMediaPlayer>
-#include <QStandardPaths>
+#include <QAudioOutput>
 #include <QFile>
-
-// Sound teammate:
-// Do the main sound implementation work in this file.
-// Keep version 1 simple:
-// - load assets
-// - play short SFX
-// - switch music cleanly by page/state
+#include <QUrl>
+#include <QtGlobal>
 
 SoundManager::SoundManager()
     : backgroundMusic_(nullptr),
-      soundVolume_(80),
-      musicVolume_(60),
-      muted_(false) {}
+    audioOutput_(nullptr),
+    soundVolume_(80),
+    musicVolume_(60),
+    muted_(false) {}
 
 SoundManager::~SoundManager() {
-    // Clean up sound effects
-    for (auto *effect : soundEffects_) {
+    for (auto it = soundEffects_.cbegin(); it != soundEffects_.cend(); ++it) {
+        QSoundEffect *effect = it.value();
         delete effect;
     }
+
     soundEffects_.clear();
 
-    // Clean up background music
     if (backgroundMusic_) {
         backgroundMusic_->stop();
         delete backgroundMusic_;
+        backgroundMusic_ = nullptr;
+    }
+
+    if (audioOutput_) {
+        delete audioOutput_;
+        audioOutput_ = nullptr;
     }
 }
-
 void SoundManager::initialize() {
-    // Sound teammate:
-    // Expand loading here for:
-    // - welcome music
-    // - lobby music
-    // - battle music
-    // - UI sounds
-    // - player/enemy action sounds
-    // Create media player for background music
     backgroundMusic_ = new QMediaPlayer();
+    audioOutput_ = new QAudioOutput();
 
-    // Load sound effects - gracefully handle missing files
-    loadSound("attack", "assets/sounds/attack.wav");
-    loadSound("hit", "assets/sounds/hit.wav");
-    loadSound("miss", "assets/sounds/miss.wav");
-    loadSound("victory", "assets/sounds/victory.wav");
-    loadSound("defeat", "assets/sounds/defeat.wav");
-    loadSound("click", "assets/sounds/click.wav");
+    backgroundMusic_->setAudioOutput(audioOutput_);
+    audioOutput_->setVolume(musicVolume_ / 100.0f);
+
+    loadSound("ui_click", "assets/sounds/ui/UIclick.wav");
+    loadSound("ui_confirm", "assets/sounds/ui/confirm.wav");
+    loadSound("ui_error", "assets/sounds/ui/error.wav");
+
+    loadSound("attack", "assets/sounds/combat/attack.wav");
+    loadSound("hit", "assets/sounds/combat/hit.wav");
+    loadSound("heal", "assets/sounds/combat/heal.wav");
+    loadSound("death", "assets/sounds/combat/death.wav");
+    loadSound("enemy_death", "assets/sounds/combat/enemy_death.wav");
+    loadSound("projectile", "assets/sounds/combat/projectile.wav");
+    loadSound("run", "assets/sounds/combat/run.wav");
 }
 
 void SoundManager::loadSound(const QString &name, const QString &path) {
-    // Sound teammate:
-    // Keep all asset loading centralized here.
-    // Check if file exists
     if (!QFile::exists(path)) {
-        // Silently skip if file doesn't exist (development mode)
         return;
     }
 
@@ -66,77 +64,112 @@ void SoundManager::loadSound(const QString &name, const QString &path) {
     soundEffects_[name] = effect;
 }
 
-void SoundManager::playAttack() {
+void SoundManager::playSound(const QString &name) {
     if (muted_) return;
-    auto it = soundEffects_.find("attack");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
+
+    auto it = soundEffects_.find(name);
+    if (it != soundEffects_.end() && it.value()) {
+        it.value()->play();
     }
 }
 
-void SoundManager::playHit() {
-    if (muted_) return;
-    auto it = soundEffects_.find("hit");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
-    }
-}
+void SoundManager::playMusic(const QString &path) {
+    if (muted_ || !backgroundMusic_ || !audioOutput_) return;
+    if (!QFile::exists(path)) return;
 
-void SoundManager::playMiss() {
-    if (muted_) return;
-    auto it = soundEffects_.find("miss");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
+    if (currentMusicPath_ == path &&
+        backgroundMusic_->playbackState() == QMediaPlayer::PlayingState) {
+        return;
     }
-}
 
-void SoundManager::playVictory() {
-    if (muted_) return;
-    auto it = soundEffects_.find("victory");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
-    }
-}
+    currentMusicPath_ = path;
 
-void SoundManager::playDefeat() {
-    if (muted_) return;
-    auto it = soundEffects_.find("defeat");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
-    }
-}
-
-void SoundManager::playMenuClick() {
-    if (muted_) return;
-    auto it = soundEffects_.find("click");
-    if (it != soundEffects_.end() && *it) {
-        (*it)->play();
-    }
-}
-
-void SoundManager::playBackgroundMusic() {
-    if (muted_ || !backgroundMusic_) return;
-    
-    backgroundMusic_->setVolume(musicVolume_);
+    backgroundMusic_->stop();
+    backgroundMusic_->setSource(QUrl::fromLocalFile(path));
+    audioOutput_->setVolume(musicVolume_ / 100.0f);
     backgroundMusic_->play();
 }
 
-void SoundManager::stopBackgroundMusic() {
+// MUSIC
+
+void SoundManager::playWelcomeMusic() {
+    playMusic("assets/sounds/music/main_menu.mp3");
+}
+
+void SoundManager::playLobbyMusic() {
+    playMusic("assets/sounds/music/lobby.mp3");
+}
+
+void SoundManager::playBattleMusic() {
+    playMusic("assets/sounds/music/battle.mp3");
+}
+
+void SoundManager::stopMusic() {
     if (backgroundMusic_) {
         backgroundMusic_->stop();
     }
 }
 
+// UI
+
+void SoundManager::playUIClick() {
+    playSound("ui_click");
+}
+
+void SoundManager::playUIConfirm() {
+    playSound("ui_confirm");
+}
+
+void SoundManager::playUIError() {
+    playSound("ui_error");
+}
+
+// COMBAT
+
+void SoundManager::playAttack() {
+    playSound("attack");
+}
+
+void SoundManager::playHit() {
+    playSound("hit");
+}
+
+void SoundManager::playHeal() {
+    playSound("heal");
+}
+
+void SoundManager::playDeath() {
+    playSound("death");
+}
+
+void SoundManager::playEnemyDeath() {
+    playSound("enemy_death");
+}
+
+void SoundManager::playProjectile() {
+    playSound("projectile");
+}
+
+void SoundManager::playRun() {
+    playSound("run");
+}
+
+// SYSTEM
+
 void SoundManager::setMusicVolume(int volume) {
     musicVolume_ = qMax(0, qMin(100, volume));
-    if (backgroundMusic_) {
-        backgroundMusic_->setVolume(musicVolume_);
+
+    if (audioOutput_) {
+        audioOutput_->setVolume(musicVolume_ / 100.0f);
     }
 }
 
 void SoundManager::setSoundVolume(int volume) {
     soundVolume_ = qMax(0, qMin(100, volume));
-    for (auto *effect : soundEffects_) {
+
+    for (auto it = soundEffects_.cbegin(); it != soundEffects_.cend(); ++it) {
+        QSoundEffect *effect = it.value();
+
         if (effect) {
             effect->setVolume(soundVolume_ / 100.0f);
         }
@@ -145,10 +178,9 @@ void SoundManager::setSoundVolume(int volume) {
 
 void SoundManager::setMuted(bool muted) {
     muted_ = muted;
+
     if (muted_) {
-        stopBackgroundMusic();
-    } else {
-        playBackgroundMusic();
+        stopMusic();
     }
 }
 
