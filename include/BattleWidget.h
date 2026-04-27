@@ -29,6 +29,7 @@ public:
     void setSoundManager(SoundManager *sm);
     void startBattle();
     void stopBattle();
+    void refreshForNewMatch();
 
 signals:
     void battleFinished();
@@ -67,6 +68,8 @@ private:
     void spawnEnemyProjectile(EnemyType type, int damage);
     void updateEnemyProjectile(double dt);
     void tryPlayerHeal();
+    
+    void syncDuelAnimations();
 
     GameManager *gameManager_;
     SoundManager *soundManager_;
