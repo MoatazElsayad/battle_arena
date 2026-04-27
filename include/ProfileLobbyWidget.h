@@ -22,6 +22,8 @@ class QLayout;
 class QBoxLayout;
 class QTimer;
 class QVBoxLayout;
+class QComboBox;
+class QFrame;
 
 class ProfileLobbyWidget : public QWidget {
     Q_OBJECT
@@ -100,6 +102,7 @@ private:
     void setupCharacterPreview(QBoxLayout* rootLayout);
     void setupModeCarousel(QBoxLayout* rootLayout);
     void setupBottomBar(QBoxLayout* rootLayout);
+    void setupDuelSetupPanel(QBoxLayout* rootLayout);
 
     QWidget* createModeCard(const GameMode& mode);
     QString badgeColorFor(const QString& badge) const;
@@ -163,6 +166,12 @@ private:
     QPushButton* enterArenaButton_;
     QLabel* actionSummaryLabel_;
     QLabel* actionHintLabel_;
+    QFrame* duelSetupPanel_;
+    QComboBox* opponentModePicker_;
+    QComboBox* opponentCategoryPicker_;
+    QComboBox* opponentPicker_;
+    QComboBox* arenaPicker_;
+    QLabel* duelSetupLabel_;
 
     QVariantAnimation* hoverGlowAnimation_;
     QGraphicsDropShadowEffect* enterArenaGlowEffect_;
