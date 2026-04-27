@@ -22,6 +22,7 @@ public:
     void setGameManager(GameManager *gm);
     void setSoundManager(SoundManager *sm);
     void startBattle();
+    void setDuelMode(bool isDuel);
 
 signals:
     void battleFinished();
@@ -29,6 +30,7 @@ signals:
 private slots:
     void onBattleFinished();
     void updateStats();
+    void handleDuelEnd();
 
 private:
     void setupUI();
@@ -38,6 +40,7 @@ private:
     BattleWidget *battleWidget_;
     QLabel *playerInfoLabel_;
     QLabel *instructionsLabel_;
+    bool isDuelMode_ = false;
 };
 
 #endif // GAMEPAGE_H

@@ -15,6 +15,9 @@ GamePage::GamePage(QWidget *parent)
     setupUI();
 }
 
+void GamePage::setDuelMode(bool isDuel) {
+    isDuelMode_ = isDuel;
+}
 GamePage::~GamePage() {}
 
 void GamePage::setupUI() {
@@ -90,6 +93,12 @@ void GamePage::onBattleFinished() {
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     
     if (!player || !enemy) return;
+    
+    if (isDuelMode_) {
+        updateStats();
+        emit battleFinished();
+        return;
+    }
     
     if (player->isAlive()) {
         gameManager_->addScore(50 + gameManager_->getCurrentLevel() * 15);
