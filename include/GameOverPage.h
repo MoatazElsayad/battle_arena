@@ -14,9 +14,16 @@ class GameOverPage : public QWidget {
     Q_OBJECT
 
 public:
+    enum class SummaryTheme {
+        SaveTheKing,
+        ExhibitionDuel,
+        LanDuel
+    };
+
     explicit GameOverPage(QWidget *parent = nullptr);
     ~GameOverPage();
 
+    void setSummaryTheme(SummaryTheme theme);
     void setResult(bool victory);
     void setBattleStats(int damageDealt, int damageTaken, int score);
 
@@ -32,6 +39,7 @@ private:
     int damageTaken_;
     int score_;
     bool victory_;
+    SummaryTheme summaryTheme_;
 };
 
 #endif // GAMEOVERPAGE_H

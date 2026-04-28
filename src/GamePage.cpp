@@ -1,6 +1,8 @@
 #include "GamePage.h"
 #include "BattleWidget.h"
+#include "ChronicleAiAdvisor.h"
 #include "GameManager.h"
+#include "LanSessionManager.h"
 #include "Player.h"
 #include "Enemy.h"
 #include <QVBoxLayout>
@@ -9,7 +11,10 @@
 GamePage::GamePage(QWidget *parent)
     : QWidget(parent),
       gameManager_(nullptr),
-      soundManager_(nullptr) {
+      soundManager_(nullptr),
+      chronicleAiAdvisor_(new ChronicleAiAdvisor(this)),
+      pendingChronicleLevel_(0),
+      pendingChronicleCampaignComplete_(false) {
     
     setStyleSheet("QWidget { background-color: #22140D; }");
     setupUI();
@@ -33,15 +38,24 @@ void GamePage::setupUI() {
 
 void GamePage::setGameManager(GameManager *gm) {
     gameManager_ = gm;
-    
+
     if (battleWidget_) {
         battleWidget_->setGameManager(gm);
     }
-    
+
     updateStats();
-    
+
     if (battleWidget_) {
-        connect(battleWidget_, &BattleWidget::battleFinished, this, &GamePage::onBattleFinished);
+        connect(battleWidget_, &BattleWidget::battleFinished, this, &GamePage::onBattleFinished, Qt::UniqueConnection);
+        connect(battleWidget_, &BattleWidget::levelTransitionFinished, this, &GamePage::onLevelTransitionFinished,
+                Qt::UniqueConnection);
+        connect(battleWidget_, &BattleWidget::pauseRequested, this, &GamePage::pauseRequested, Qt::UniqueConnection);
+    }
+}
+
+void GamePage::setLanSessionManager(LanSessionManager *manager) {
+    if (battleWidget_) {
+        battleWidget_->setLanSessionManager(manager);
     }
 }
 
@@ -56,12 +70,43 @@ void GamePage::setSoundManager(SoundManager *sm) {
 }
 
 void GamePage::startBattle() {
-    // 1v1 teammate:
-    // Same battle handling should be reused for duel mode.
+    // LAN teammate:
+    // Same battle handling is reused for Arena Link duel mode.
     if (battleWidget_) {
         battleWidget_->startBattle();
     }
     updateStats();
+}
+
+void GamePage::pauseBattle() {
+    if (battleWidget_) {
+        battleWidget_->pauseBattle();
+    }
+}
+
+void GamePage::resumeBattle() {
+    if (battleWidget_) {
+        battleWidget_->resumeBattle();
+    }
+}
+
+bool GamePage::hasActiveBattle() const {
+    return battleWidget_ && battleWidget_->isBattleRunning();
+}
+
+ChronicleBattleReport GamePage::lastChronicleReport() const {
+    return pendingChronicleReport_;
+}
+
+void GamePage::onLevelTransitionFinished() {
+    if (pendingChronicleLevel_ > 0) {
+        emit chronicleRequested(pendingChronicleLevel_, pendingChronicleCampaignComplete_);
+        pendingChronicleLevel_ = 0;
+        pendingChronicleCampaignComplete_ = false;
+        return;
+    }
+
+    startBattle();
 }
 
 void GamePage::updateStats() {
@@ -79,7 +124,7 @@ void GamePage::updateStats() {
 }
 
 void GamePage::onBattleFinished() {
-    // 1v1 teammate:
+    // LAN teammate:
     // Save the Kings can still advance levels here.
     // Duel mode should stop after this one result and return to the normal finish flow.
     // Sound teammate:
@@ -90,14 +135,58 @@ void GamePage::onBattleFinished() {
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     
     if (!player || !enemy) return;
+
+    pendingChronicleReport_ = battleWidget_->levelBattleReport();
+    pendingChronicleReport_.completedLevel = gameManager_->getCurrentLevel();
+    pendingChronicleReport_.totalLevels = gameManager_->getTotalLevels();
+    pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
+    pendingChronicleReport_.victory = player->isAlive() && !enemy->isAlive();
+    pendingChronicleReport_.campaignComplete = false;
+
+    if (gameManager_->isDuelMode()) {
+        pendingChronicleReport_.victory = player->isAlive() && !enemy->isAlive();
+        pendingChronicleReport_.campaignComplete = false;
+        pendingChronicleReport_.completedLevel = 1;
+        pendingChronicleReport_.totalLevels = 1;
+        gameManager_->addScore(pendingChronicleReport_.victory ? 140 : 45);
+        pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
+
+        if (playerInfoLabel_) {
+            playerInfoLabel_->setText(gameManager_->isLanDuel()
+                ? (pendingChronicleReport_.victory ? "Arena Link duel won." : "Arena Link duel lost.")
+                : (pendingChronicleReport_.victory ? "Exhibition duel won." : "Exhibition duel lost."));
+        }
+
+        updateStats();
+        emit battleFinished();
+        return;
+    }
     
     if (player->isAlive()) {
+        const int completedLevel = gameManager_->getCurrentLevel();
         gameManager_->addScore(50 + gameManager_->getCurrentLevel() * 15);
-
-        if (gameManager_->advanceToNextLevel()) {
-            startBattle();
-            return;
+        const bool hasNextLevel = gameManager_->advanceToNextLevel();
+        pendingChronicleReport_.completedLevel = completedLevel;
+        pendingChronicleReport_.totalLevels = gameManager_->getTotalLevels();
+        pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
+        pendingChronicleReport_.victory = true;
+        pendingChronicleReport_.campaignComplete = !hasNextLevel && gameManager_->hasCompletedCampaign();
+        const Enemy *nextEnemy = gameManager_->getCurrentEnemy();
+        if (nextEnemy && hasNextLevel) {
+            pendingChronicleReport_.nextEnemyName = QString::fromStdString(nextEnemy->getName());
+            pendingChronicleReport_.nextEnemyType = pendingChronicleReport_.nextEnemyName;
+        } else {
+            pendingChronicleReport_.nextEnemyName = "The saved king";
+            pendingChronicleReport_.nextEnemyType = "Rescue ending";
         }
+        pendingChronicleLevel_ = completedLevel;
+        pendingChronicleCampaignComplete_ = !hasNextLevel && gameManager_->hasCompletedCampaign();
+        if (chronicleAiAdvisor_) {
+            chronicleAiAdvisor_->prefetchSummary(pendingChronicleReport_);
+        }
+
+        battleWidget_->startLevelTransition();
+        return;
     } else {
         if (playerInfoLabel_) {
             playerInfoLabel_->setText("Defeat! Press ESC to continue...");

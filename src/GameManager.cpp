@@ -29,6 +29,24 @@ constexpr std::array<EnemyDefinition, 5> kEnemyCampaign = {{
     {EnemyType::EVIL_WIZARD, "Evil Wizard", 145, 20, 165.0f},
 }};
 
+constexpr std::array<EnemyDefinition, 3> kFinalWerewolfGuardians = {{
+    {EnemyType::BLACK_WEREWOLF, "Black Werewolf", 168, 20, 175.0f},
+    {EnemyType::RED_WEREWOLF, "Red Werewolf", 188, 23, 182.0f},
+    {EnemyType::WHITE_WEREWOLF, "White Werewolf", 214, 27, 190.0f},
+}};
+
+constexpr std::array<PlayerType, 9> kPlayerRoster = {{
+    PlayerType::ARCEN,
+    PlayerType::DEMON_SLAYER,
+    PlayerType::FANTASY_WARRIOR,
+    PlayerType::HUNTRESS,
+    PlayerType::KNIGHT,
+    PlayerType::MARTIAL,
+    PlayerType::MARTIAL_HERO,
+    PlayerType::MEDIEVAL_WARRIOR,
+    PlayerType::WIZARD
+}};
+
 PlayerStats statsForPlayer(PlayerType type) {
     switch (type) {
         case PlayerType::KNIGHT:
@@ -51,6 +69,95 @@ PlayerStats statsForPlayer(PlayerType type) {
             return {100, 15};
     }
 }
+
+EnemyType duelArchetypeForPlayer(PlayerType type) {
+    switch (type) {
+        case PlayerType::ARCEN:
+            return EnemyType::FIRE_WORM;
+        case PlayerType::WIZARD:
+            return EnemyType::FIRE_WIZARD;
+        case PlayerType::HUNTRESS:
+            return EnemyType::FLYING_DEMON;
+        case PlayerType::MARTIAL:
+        case PlayerType::MARTIAL_HERO:
+            return EnemyType::NIGHTWEAVER;
+        case PlayerType::DEMON_SLAYER:
+            return EnemyType::RED_WEREWOLF;
+        case PlayerType::MEDIEVAL_WARRIOR:
+            return EnemyType::BLACK_WEREWOLF;
+        case PlayerType::FANTASY_WARRIOR:
+            return EnemyType::EVIL_WIZARD;
+        case PlayerType::KNIGHT:
+        default:
+            return EnemyType::WHITE_WEREWOLF;
+    }
+}
+
+float duelSpeedForPlayer(PlayerType type) {
+    switch (type) {
+        case PlayerType::HUNTRESS:
+        case PlayerType::MARTIAL:
+        case PlayerType::MARTIAL_HERO:
+            return 182.0f;
+        case PlayerType::ARCEN:
+        case PlayerType::WIZARD:
+            return 148.0f;
+        case PlayerType::KNIGHT:
+        case PlayerType::MEDIEVAL_WARRIOR:
+            return 154.0f;
+        default:
+            return 168.0f;
+    }
+}
+
+std::string displayNameForPlayer(PlayerType type) {
+    switch (type) {
+        case PlayerType::ARCEN: return "Arcen";
+        case PlayerType::DEMON_SLAYER: return "Demon Slayer";
+        case PlayerType::FANTASY_WARRIOR: return "Fantasy Warrior";
+        case PlayerType::HUNTRESS: return "Huntress";
+        case PlayerType::KNIGHT: return "Knight";
+        case PlayerType::MARTIAL: return "Martial";
+        case PlayerType::MARTIAL_HERO: return "Martial Hero";
+        case PlayerType::MEDIEVAL_WARRIOR: return "Medieval Warrior";
+        case PlayerType::WIZARD: return "Wizard";
+    }
+    return "Gladiator";
+}
+
+EnemyDefinition definitionForEnemyType(EnemyType type) {
+    const auto inCampaign = std::find_if(kEnemyCampaign.begin(), kEnemyCampaign.end(), [type](const EnemyDefinition& definition) {
+        return definition.type == type;
+    });
+    if (inCampaign != kEnemyCampaign.end()) {
+        return *inCampaign;
+    }
+
+    const auto inFinal = std::find_if(kFinalWerewolfGuardians.begin(), kFinalWerewolfGuardians.end(), [type](const EnemyDefinition& definition) {
+        return definition.type == type;
+    });
+    if (inFinal != kFinalWerewolfGuardians.end()) {
+        return *inFinal;
+    }
+
+    return kEnemyCampaign.front();
+}
+
+PlayerType randomPlayerOpponent(PlayerType selected) {
+    std::vector<PlayerType> candidates;
+    for (PlayerType type : kPlayerRoster) {
+        if (type != selected) {
+            candidates.push_back(type);
+        }
+    }
+
+    if (candidates.empty()) {
+        return PlayerType::KNIGHT;
+    }
+
+    const int index = rand() % static_cast<int>(candidates.size());
+    return candidates[static_cast<size_t>(index)];
+}
 }
 
 GameManager::GameManager(QObject *parent)
@@ -63,9 +170,15 @@ GameManager::GameManager(QObject *parent)
       player_(nullptr),
       currentEnemy_(nullptr),
       selectedPlayerType_(PlayerType::KNIGHT),
-      campaignCompleted_(false)
-    runMode_(RunMode::CAMPAIGN),
-    duelVictory_(false){
+      duelOpponentPlayerType_(PlayerType::KNIGHT),
+      duelOpponentName_(""),
+      duelArenaName_(""),
+      campaignCompleted_(false) {
+    lanDuelMode_ = false;
+    finalGuardianIndex_ = 0;
+    runMode_ = RunMode::CAMPAIGN;
+    duelConfig_ = DuelConfig();
+    duelVictory_ = false;
     if (rand() == 0) srand(time(nullptr)); // seed random once
 }
 
@@ -74,16 +187,58 @@ GameManager::~GameManager() {
     delete currentEnemy_;
 }
 
-void GameManager::startCampaign(const std::string &playerName, PlayerType playerType) {
-    runMode_ = RunMode::CAMPAIGN;
-    duelVictory_ = false;
-
+void GameManager::startGame(const std::string &playerName, PlayerType playerType) {
+    // 1v1 teammate:
+    // Split setup here by theme:
+    // - Save the Kings = current campaign flow
+    // - 1v1 = one match only with chosen/random opponent and chosen background
+    // Ranking teammate:
+    // Keep track of enough battle context here for reward calculation after the match.
     playerName_ = playerName;
     selectedPlayerType_ = playerType;
+    duelOpponentPlayerType_ = PlayerType::KNIGHT;
+    duelOpponentName_.clear();
+    duelArenaName_.clear();
     currentScore_ = 0;
     playerLevel_ = 1;
     currentLevel_ = 1;
     campaignCompleted_ = false;
+    lanDuelMode_ = false;
+    finalGuardianIndex_ = 0;
+    runMode_ = RunMode::CAMPAIGN;
+    duelConfig_ = DuelConfig();
+    duelVictory_ = false;
+    state_ = GameState::PLAYING;
+
+    delete player_;
+    player_ = nullptr;
+
+    const PlayerStats playerStats = statsForPlayer(playerType);
+    player_ = new Player(playerStats.hp, playerStats.hp, 150.0f, 400.0f, 200.0f, playerStats.attack, playerType);
+    player_->setName(playerName);
+
+    spawnEnemyForCurrentLevel();
+}
+
+void GameManager::startLanDuel(const std::string &playerName,
+                               PlayerType playerType,
+                               const std::string &opponentName,
+                               PlayerType opponentType,
+                               const std::string &arenaName) {
+    playerName_ = playerName;
+    selectedPlayerType_ = playerType;
+    duelOpponentPlayerType_ = opponentType;
+    duelOpponentName_ = opponentName.empty() ? "Linked Rival" : opponentName;
+    duelArenaName_ = arenaName.empty() ? "Arena Link" : arenaName;
+    currentScore_ = 0;
+    playerLevel_ = 1;
+    currentLevel_ = 1;
+    campaignCompleted_ = false;
+    lanDuelMode_ = true;
+    finalGuardianIndex_ = 0;
+    runMode_ = RunMode::DUEL;
+    duelConfig_ = DuelConfig();
+    duelVictory_ = false;
     state_ = GameState::PLAYING;
 
     delete player_;
@@ -110,9 +265,15 @@ void GameManager::startDuel(const std::string &playerName,
     runMode_ = RunMode::DUEL;
     duelConfig_ = config;
     duelVictory_ = false;
+    lanDuelMode_ = false;
 
     playerName_ = playerName;
     selectedPlayerType_ = playerType;
+    duelOpponentPlayerType_ = PlayerType::KNIGHT;
+    duelOpponentName_.clear();
+    duelArenaName_ = config.selectedArena.trimmed().isEmpty()
+        ? "Colosseum"
+        : config.selectedArena.toStdString();
     currentScore_ = 0;
     playerLevel_ = 1;
     currentLevel_ = 1;
@@ -137,44 +298,13 @@ void GameManager::startDuel(const std::string &playerName,
 
     delete currentEnemy_;
     currentEnemy_ = nullptr;
-
-    if (config.opponentMode == DuelOpponentMode::RANDOM) {
-        const int randomIndex = rand() % static_cast<int>(kEnemyCampaign.size());
-        const EnemyDefinition &definition = kEnemyCampaign[randomIndex];
-
-        currentEnemy_ = new Enemy(
-            definition.type,
-            definition.name,
-            definition.hp,
-            definition.hp,
-            700.0f,
-            400.0f,
-            definition.speed,
-            definition.attack
-        );
-    } else {
-        currentEnemy_ = new Enemy(
-            config.manualEnemyOpponent,
-            "Duel Challenger",
-            110,
-            110,
-            700.0f,
-            400.0f,
-            150.0f,
-            16
-        );
-    }
+    spawnEnemyForCurrentLevel();
 }
 
 bool GameManager::advanceToNextLevel() {
-    // 1v1 teammate:
+    // LAN teammate:
     // Duel mode should not advance through campaign levels.
     // For 1v1, battle should end after one match.
-    if (runMode_ == RunMode::DUEL) {
-        duelVictory_ = true;
-        state_ = GameState::GAME_OVER;
-        return false;
-    }
     if (campaignCompleted_) {
         return false;
     }
@@ -233,10 +363,19 @@ int GameManager::getCurrentLevel() const {
 }
 
 int GameManager::getTotalLevels() const {
-    return static_cast<int>(kEnemyCampaign.size());
+    if (runMode_ == RunMode::DUEL) {
+        return 1;
+    }
+    return static_cast<int>(kEnemyCampaign.size()) + 1;
 }
 
 std::string GameManager::getBattleTitle() const {
+    if (runMode_ == RunMode::DUEL) {
+        const std::string playerLabel = playerName_.empty() ? "Gladiator" : playerName_;
+        const std::string opponentLabel = duelOpponentName_.empty() ? "Exhibition Rival" : duelOpponentName_;
+        return playerLabel + " vs " + opponentLabel;
+    }
+
     if (playerName_.empty()) {
         return "Battle";
     }
@@ -252,8 +391,49 @@ PlayerType GameManager::getSelectedPlayerType() const {
     return selectedPlayerType_;
 }
 
+PlayerType GameManager::getLanOpponentPlayerType() const {
+    return duelOpponentPlayerType_;
+}
+
+std::string GameManager::getLanOpponentName() const {
+    return duelOpponentName_;
+}
+
+std::string GameManager::getLanArenaName() const {
+    return duelArenaName_;
+}
+
 bool GameManager::hasCompletedCampaign() const {
     return campaignCompleted_;
+}
+
+bool GameManager::isLanDuel() const {
+    return lanDuelMode_;
+}
+
+bool GameManager::isFinalKingStage() const {
+    if (runMode_ != RunMode::CAMPAIGN || lanDuelMode_) {
+        return false;
+    }
+    return currentLevel_ == getTotalLevels();
+}
+
+bool GameManager::advanceFinalGuardianWave() {
+    if (runMode_ != RunMode::CAMPAIGN || lanDuelMode_) {
+        return false;
+    }
+
+    if (!isFinalKingStage()) {
+        return false;
+    }
+
+    if (finalGuardianIndex_ >= static_cast<int>(kFinalWerewolfGuardians.size()) - 1) {
+        return false;
+    }
+
+    ++finalGuardianIndex_;
+    spawnEnemyForCurrentLevel();
+    return currentEnemy_ != nullptr;
 }
 
 Player* GameManager::getPlayer() const {
@@ -281,14 +461,69 @@ bool GameManager::didWinDuel() const {
 }
 
 void GameManager::spawnEnemyForCurrentLevel() {
-    // 1v1 teammate:
+    // LAN teammate:
     // Reuse this logic for campaign only.
     // Duel mode will need separate opponent spawning based on the player's duel selection.
     delete currentEnemy_;
     currentEnemy_ = nullptr;
 
-    const int index = std::clamp(currentLevel_ - 1, 0, getTotalLevels() - 1);
-    const EnemyDefinition &definition = kEnemyCampaign[static_cast<size_t>(index)];
+    if (lanDuelMode_) {
+        const PlayerStats duelStats = statsForPlayer(duelOpponentPlayerType_);
+        currentEnemy_ = new Enemy(duelArchetypeForPlayer(duelOpponentPlayerType_),
+                                  duelOpponentName_.empty() ? "Linked Rival" : duelOpponentName_,
+                                  duelStats.hp,
+                                  duelStats.hp,
+                                  700.0f,
+                                  400.0f,
+                                  duelSpeedForPlayer(duelOpponentPlayerType_),
+                                  duelStats.attack);
+        return;
+    }
+
+    if (runMode_ == RunMode::DUEL) {
+        if (duelConfig_.category == DuelOpponentCategory::PLAYER_TYPE) {
+            duelOpponentPlayerType_ = duelConfig_.opponentMode == DuelOpponentMode::RANDOM
+                ? randomPlayerOpponent(selectedPlayerType_)
+                : duelConfig_.manualPlayerOpponent;
+            duelOpponentName_ = displayNameForPlayer(duelOpponentPlayerType_);
+
+            const PlayerStats duelStats = statsForPlayer(duelOpponentPlayerType_);
+            currentEnemy_ = new Enemy(duelArchetypeForPlayer(duelOpponentPlayerType_),
+                                      duelOpponentName_.c_str(),
+                                      duelStats.hp,
+                                      duelStats.hp,
+                                      700.0f,
+                                      400.0f,
+                                      duelSpeedForPlayer(duelOpponentPlayerType_),
+                                      duelStats.attack);
+            return;
+        }
+
+        const EnemyDefinition definition = duelConfig_.opponentMode == DuelOpponentMode::RANDOM
+            ? kEnemyCampaign[static_cast<size_t>(rand() % static_cast<int>(kEnemyCampaign.size()))]
+            : definitionForEnemyType(duelConfig_.manualEnemyOpponent);
+
+        duelOpponentName_ = definition.name;
+        currentEnemy_ = new Enemy(definition.type,
+                                  definition.name,
+                                  definition.hp,
+                                  definition.hp,
+                                  700.0f,
+                                  400.0f,
+                                  definition.speed,
+                                  definition.attack);
+        return;
+    }
+
+    EnemyDefinition definition = kEnemyCampaign.back();
+    if (isFinalKingStage()) {
+        const int waveIndex = std::clamp(finalGuardianIndex_, 0, static_cast<int>(kFinalWerewolfGuardians.size()) - 1);
+        definition = kFinalWerewolfGuardians[static_cast<size_t>(waveIndex)];
+    } else {
+        const int index = std::clamp(currentLevel_ - 1, 0, static_cast<int>(kEnemyCampaign.size()) - 1);
+        definition = kEnemyCampaign[static_cast<size_t>(index)];
+    }
+
     currentEnemy_ = new Enemy(definition.type,
                               definition.name,
                               definition.hp,

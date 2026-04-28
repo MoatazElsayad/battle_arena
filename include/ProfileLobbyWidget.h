@@ -6,6 +6,8 @@
 #include <QVector>
 #include <QWidget>
 
+#include "ProgressionTypes.h"
+
 class QLabel;
 class QToolButton;
 class QPushButton;
@@ -29,7 +31,7 @@ class ProfileLobbyWidget : public QWidget {
     Q_OBJECT
 
 public:
-    // 1v1 teammate:
+    // LAN teammate:
     // Extend lobby data/UI here for duel setup:
     // selected opponent mode, selected opponent, and selected background.
     // Ranking teammate:
@@ -75,7 +77,7 @@ public slots:
     void setUserProfile(const UserProfile& profile);
     void setSelectedCharacter(const Character& character);
     void setSelectedMode(const QString& modeName);
-    void setDuelSetup(const DuelSetup& setup) { duelSetup_ = setup; }
+    void setDuelSetup(const DuelSetup& setup);
     void updateProgression(const PlayerProgression& stats);
 
 signals:
@@ -90,7 +92,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    // 1v1 teammate:
+    // LAN teammate:
     // Most duel-theme setup UI belongs in this widget.
     // Main work areas:
     // - setupModeCarousel
@@ -117,6 +119,9 @@ private:
     QString modeAccentFor(const QString& modeName) const;
     QString modeShortTagFor(const QString& modeName) const;
     QString modeDescriptionFor(const QString& modeName) const;
+    QStringList duelPlayerOpponentChoices() const;
+    QStringList duelEnemyOpponentChoices() const;
+    void refreshDuelSetupControls();
     QString resolveIdleSpriteSheet(const QString& imagePath) const;
     QVector<QPixmap> extractIdleFrames(const QPixmap& spriteSheet) const;
     int estimateFrameCount(const QSize& spriteSheetSize) const;
@@ -139,6 +144,7 @@ private:
     QLabel* previewEyebrowLabel_;
     QLabel* previewTitleLabel_;
     QLabel* previewModeChipLabel_;
+    QLabel* previewPortraitLabel_;
     QLabel* previewDescriptionLabel_;
     QLabel* previewMoveLabel_;
     QLabel* previewAbilitiesLabel_;

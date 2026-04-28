@@ -3,16 +3,51 @@
 #include <QSoundEffect>
 #include <QMediaPlayer>
 #include <QAudioOutput>
+#include <QCoreApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QUrl>
 #include <QtGlobal>
+#include <limits>
+
+namespace {
+QString resolveSoundAssetPath(const QString& relativePath) {
+    if (relativePath.isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo directInfo(relativePath);
+    if (directInfo.isAbsolute() && directInfo.exists()) {
+        return directInfo.absoluteFilePath();
+    }
+
+    const QStringList candidates = {
+        QDir::current().filePath(relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../") + relativePath),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../") + relativePath)
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(candidate);
+        }
+    }
+
+    return QString();
+}
+}
 
 SoundManager::SoundManager()
     : backgroundMusic_(nullptr),
-    audioOutput_(nullptr),
-    soundVolume_(80),
-    musicVolume_(60),
-    muted_(false) {}
+      audioOutput_(nullptr),
+      soundVolume_(80),
+      musicVolume_(60),
+      muted_(false),
+      audioAvailable_(true),
+      musicAvailable_(true),
+      initialized_(false) {}
 
 SoundManager::~SoundManager() {
     for (auto it = soundEffects_.cbegin(); it != soundEffects_.cend(); ++it) {
@@ -33,75 +68,154 @@ SoundManager::~SoundManager() {
         audioOutput_ = nullptr;
     }
 }
+
+void SoundManager::ensureInitialized() {
+    if (!initialized_) {
+        initialize();
+    }
+}
+
 void SoundManager::initialize() {
+    if (initialized_) {
+        return;
+    }
+    initialized_ = true;
+    playbackClock_.start();
+
+    soundThrottleMs_.insert(QStringLiteral("ui_click"), 45);
+    soundThrottleMs_.insert(QStringLiteral("ui_confirm"), 70);
+    soundThrottleMs_.insert(QStringLiteral("ui_error"), 90);
+    soundThrottleMs_.insert(QStringLiteral("attack"), 110);
+    soundThrottleMs_.insert(QStringLiteral("hit"), 85);
+    soundThrottleMs_.insert(QStringLiteral("heal"), 140);
+    soundThrottleMs_.insert(QStringLiteral("death"), 180);
+    soundThrottleMs_.insert(QStringLiteral("enemy_death"), 180);
+    soundThrottleMs_.insert(QStringLiteral("projectile"), 120);
+    soundThrottleMs_.insert(QStringLiteral("run"), 180);
+
     backgroundMusic_ = new QMediaPlayer();
     audioOutput_ = new QAudioOutput();
 
     backgroundMusic_->setAudioOutput(audioOutput_);
     audioOutput_->setVolume(musicVolume_ / 100.0f);
+    QObject::connect(backgroundMusic_, &QMediaPlayer::errorOccurred, backgroundMusic_,
+                     [this](QMediaPlayer::Error, const QString&) {
+                         musicAvailable_ = false;
+                         currentMusicPath_.clear();
+                         if (backgroundMusic_) {
+                             backgroundMusic_->stop();
+                         }
+                     });
 
-    loadSound("ui_click", "assets/sounds/ui/UIclick.wav");
-    loadSound("ui_confirm", "assets/sounds/ui/confirm.wav");
-    loadSound("ui_error", "assets/sounds/ui/error.wav");
+    loadSound("ui_click", "assets/sound/ui/UIclick.wav");
+    loadSound("ui_confirm", "assets/sound/ui/confirm.wav");
+    loadSound("ui_error", "assets/sound/ui/error.wav");
 
-    loadSound("attack", "assets/sounds/combat/attack.wav");
-    loadSound("hit", "assets/sounds/combat/hit.wav");
-    loadSound("heal", "assets/sounds/combat/heal.wav");
-    loadSound("death", "assets/sounds/combat/death.wav");
-    loadSound("enemy_death", "assets/sounds/combat/enemy_death.wav");
-    loadSound("projectile", "assets/sounds/combat/projectile.wav");
-    loadSound("run", "assets/sounds/combat/run.wav");
+    loadSound("attack", "assets/sound/combat/attack.wav");
+    loadSound("hit", "assets/sound/combat/hit.wav");
+    loadSound("heal", "assets/sound/combat/heal.wav");
+    loadSound("death", "assets/sound/combat/death.wav");
+    loadSound("enemy_death", "assets/sound/combat/enemy_death.wav");
+    loadSound("projectile", "assets/sound/combat/projectile.wav");
+    loadSound("run", "assets/sound/combat/run.wav");
 }
 
 void SoundManager::loadSound(const QString &name, const QString &path) {
-    if (!QFile::exists(path)) {
+    const QString resolvedPath = resolveSoundAssetPath(path);
+    if (resolvedPath.isEmpty()) {
         return;
     }
 
     QSoundEffect *effect = new QSoundEffect();
-    effect->setSource(QUrl::fromLocalFile(path));
+    effect->setSource(QUrl::fromLocalFile(resolvedPath));
+    effect->setLoopCount(1);
     effect->setVolume(soundVolume_ / 100.0f);
     soundEffects_[name] = effect;
 }
 
 void SoundManager::playSound(const QString &name) {
-    if (muted_) return;
+    ensureInitialized();
+    if (muted_ || !audioAvailable_) return;
 
     auto it = soundEffects_.find(name);
-    if (it != soundEffects_.end() && it.value()) {
-        it.value()->play();
+    if (it == soundEffects_.end() || !it.value()) {
+        return;
     }
+
+    QSoundEffect *effect = it.value();
+    if (effect->status() != QSoundEffect::Ready) {
+        return;
+    }
+
+    const qint64 now = playbackClock_.isValid() ? playbackClock_.elapsed() : 0;
+    const int minIntervalMs = soundThrottleMs_.value(name, 0);
+    if (minIntervalMs > 0) {
+        const qint64 lastPlayed = lastSoundPlayMs_.value(name, std::numeric_limits<qint64>::min());
+        if (now - lastPlayed < minIntervalMs) {
+            return;
+        }
+    }
+
+    lastSoundPlayMs_.insert(name, now);
+    if (effect->isPlaying()) {
+        effect->stop();
+    }
+    effect->play();
 }
 
 void SoundManager::playMusic(const QString &path) {
-    if (muted_ || !backgroundMusic_ || !audioOutput_) return;
-    if (!QFile::exists(path)) return;
+    ensureInitialized();
+    if (muted_ || !musicAvailable_ || !backgroundMusic_ || !audioOutput_) return;
+    const QString resolvedPath = resolveSoundAssetPath(path);
+    if (resolvedPath.isEmpty()) return;
 
-    if (currentMusicPath_ == path &&
+    if (currentMusicPath_ == resolvedPath &&
         backgroundMusic_->playbackState() == QMediaPlayer::PlayingState) {
         return;
     }
 
-    currentMusicPath_ = path;
+    currentMusicPath_ = resolvedPath;
 
     backgroundMusic_->stop();
-    backgroundMusic_->setSource(QUrl::fromLocalFile(path));
+    backgroundMusic_->setSource(QUrl::fromLocalFile(resolvedPath));
     audioOutput_->setVolume(musicVolume_ / 100.0f);
     backgroundMusic_->play();
+}
+
+void SoundManager::playMusicCandidates(const QStringList& candidatePaths) {
+    for (const QString& candidate : candidatePaths) {
+        if (resolveSoundAssetPath(candidate).isEmpty()) {
+            continue;
+        }
+        playMusic(candidate);
+        return;
+    }
 }
 
 // MUSIC
 
 void SoundManager::playWelcomeMusic() {
-    playMusic("assets/sounds/music/main_menu.mp3");
+    playMusicCandidates({
+        QStringLiteral("assets/sound/music/main_menu.ogg"),
+        QStringLiteral("assets/sound/music/main_menu.wav"),
+        QStringLiteral("assets/sound/music/main_menu.mp3")
+    });
 }
 
 void SoundManager::playLobbyMusic() {
-    playMusic("assets/sounds/music/lobby.mp3");
+    playMusicCandidates({
+        QStringLiteral("assets/sound/music/lobby.ogg"),
+        QStringLiteral("assets/sound/music/lobby.wav"),
+        QStringLiteral("assets/sound/music/lobby.mp3")
+    });
 }
 
 void SoundManager::playBattleMusic() {
-    playMusic("assets/sounds/music/battle.mp3");
+    playMusicCandidates({
+        QStringLiteral("assets/sound/music/battle.ogg"),
+        QStringLiteral("assets/sound/music/battle.wav"),
+        QStringLiteral("assets/sound/music/battle.mp3")
+    });
 }
 
 void SoundManager::stopMusic() {

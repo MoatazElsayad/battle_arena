@@ -3,6 +3,8 @@
 
 #include <QString>
 #include <QMap>
+#include <QHash>
+#include <QElapsedTimer>
 
 class QSoundEffect;
 class QMediaPlayer;
@@ -49,10 +51,18 @@ private:
     int soundVolume_;
     int musicVolume_;
     bool muted_;
+    bool audioAvailable_;
+    bool musicAvailable_;
+    bool initialized_;
+    QElapsedTimer playbackClock_;
+    QHash<QString, qint64> lastSoundPlayMs_;
+    QHash<QString, int> soundThrottleMs_;
 
+    void ensureInitialized();
     void loadSound(const QString &name, const QString &path);
     void playSound(const QString &name);
     void playMusic(const QString &path);
+    void playMusicCandidates(const QStringList& candidatePaths);
 };
 
 #endif // SOUNDMANAGER_H
