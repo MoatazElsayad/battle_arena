@@ -478,6 +478,10 @@ ProfileLobbyWidget::ProfileLobbyWidget(QWidget* parent)
       previewEyebrowLabel_(nullptr),
       previewTitleLabel_(nullptr),
       previewModeChipLabel_(nullptr),
+      lobbySummaryCharacterLabel_(nullptr),
+      lobbySummaryRankLabel_(nullptr),
+      lobbySummaryScoreLabel_(nullptr),
+      lobbySummaryBadgeLabel_(nullptr),
       previewPortraitLabel_(nullptr),
       previewDescriptionLabel_(nullptr),
       previewMoveLabel_(nullptr),
@@ -635,15 +639,6 @@ void ProfileLobbyWidget::setupHeader(QBoxLayout* rootLayout) {
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(10);
 
-    auto* seasonLabel = new QLabel("SEASON I", rightWrap);
-    seasonLabel->setStyleSheet(
-        "color:#FCE8B2; font:700 11px 'Segoe UI';"
-        "padding:6px 10px; border-radius:10px;"
-        "background:rgba(44,69,110,0.34);"
-        "border:1px solid rgba(123,169,255,0.35);"
-    );
-    rightLayout->addWidget(seasonLabel);
-
     avatarLabel_ = new QLabel(rightWrap);
     avatarLabel_->setFixedSize(46, 46);
     avatarLabel_->setAlignment(Qt::AlignCenter);
@@ -742,6 +737,74 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
         " border-radius:18px;"
         "}"
     );
+
+    auto* plainLayout = new QVBoxLayout(plainPanel);
+    plainLayout->setContentsMargins(16, 16, 16, 16);
+    plainLayout->setSpacing(12);
+
+    auto* summaryEyebrow = new QLabel("LOBBY PROFILE", plainPanel);
+    summaryEyebrow->setStyleSheet(
+        "color:#F4D895; font:700 11px 'Segoe UI'; letter-spacing:1px;"
+        "padding:6px 10px; border-radius:10px;"
+        "background:rgba(212,160,23,0.12); border:1px solid rgba(212,160,23,0.22);"
+    );
+    plainLayout->addWidget(summaryEyebrow, 0, Qt::AlignLeft);
+
+    auto* summaryCard = new QFrame(plainPanel);
+    summaryCard->setStyleSheet(
+        "background:rgba(10,8,7,0.30);"
+        "border:1px solid rgba(212,160,23,0.14);"
+        "border-radius:16px;"
+    );
+    auto* summaryCardLayout = new QVBoxLayout(summaryCard);
+    summaryCardLayout->setContentsMargins(14, 14, 14, 14);
+    summaryCardLayout->setSpacing(10);
+
+    const auto createSummaryValue = [summaryCard, summaryCardLayout](const QString& title, QLabel** outLabel) {
+        auto* block = new QWidget(summaryCard);
+        auto* blockLayout = new QVBoxLayout(block);
+        blockLayout->setContentsMargins(0, 0, 0, 0);
+        blockLayout->setSpacing(3);
+
+        auto* titleLabel = new QLabel(title, block);
+        titleLabel->setStyleSheet("color:rgba(244,216,149,0.78); font:700 10px 'Segoe UI'; letter-spacing:0.9px;");
+        blockLayout->addWidget(titleLabel);
+
+        auto* valueLabel = new QLabel(block);
+        valueLabel->setWordWrap(true);
+        valueLabel->setStyleSheet("color:#FFF0C6; font:700 15px 'Segoe UI';");
+        blockLayout->addWidget(valueLabel);
+
+        summaryCardLayout->addWidget(block);
+        *outLabel = valueLabel;
+    };
+
+    auto* badgeTitle = new QLabel("BADGE PLACEHOLDER", summaryCard);
+    badgeTitle->setStyleSheet("color:rgba(244,216,149,0.78); font:700 10px 'Segoe UI'; letter-spacing:0.9px;");
+    summaryCardLayout->addWidget(badgeTitle);
+
+    lobbySummaryBadgeLabel_ = new QLabel(summaryCard);
+    lobbySummaryBadgeLabel_->setAlignment(Qt::AlignCenter);
+    lobbySummaryBadgeLabel_->setMinimumHeight(120);
+    lobbySummaryBadgeLabel_->setStyleSheet(
+        "color:rgba(245,230,184,0.80);"
+        "font:700 12px 'Segoe UI';"
+        "letter-spacing:0.4px;"
+        "background:rgba(212,160,23,0.06);"
+        "border:1px dashed rgba(212,160,23,0.34);"
+        "border-radius:14px;"
+        "padding:12px;"
+    );
+    summaryCardLayout->addWidget(lobbySummaryBadgeLabel_);
+
+    createSummaryValue("RANK", &lobbySummaryRankLabel_);
+    createSummaryValue("TOTAL SCORE", &lobbySummaryScoreLabel_);
+    createSummaryValue("CURRENT FIGHTER", &lobbySummaryCharacterLabel_);
+
+    summaryCardLayout->addStretch(1);
+
+    plainLayout->addWidget(summaryCard);
+    plainLayout->addStretch(1);
     contentLayout->addWidget(plainPanel, 2);
 
     auto* infoPanel = new QFrame(contentRow);
@@ -956,14 +1019,6 @@ void ProfileLobbyWidget::setupModeCarousel(QBoxLayout* rootLayout) {
     sectionSubtitle->setStyleSheet("color:rgba(245,230,184,0.72); font:12px 'Segoe UI';");
     titleStackLayout->addWidget(sectionSubtitle);
     sectionHeaderLayout->addWidget(titleStack, 1);
-
-    auto* rotationLabel = new QLabel("ARENA ROTATION", sectionHeader);
-    rotationLabel->setStyleSheet(
-        "color:#F8E6B1; font:700 11px 'Segoe UI'; letter-spacing:1px;"
-        "padding:6px 10px; border-radius:10px;"
-        "background:rgba(64,42,20,0.85); border:1px solid rgba(212,160,23,0.26);"
-    );
-    sectionHeaderLayout->addWidget(rotationLabel, 0, Qt::AlignTop);
 
     sectionLayout->addWidget(sectionHeader);
 
@@ -1295,10 +1350,10 @@ QString ProfileLobbyWidget::badgeColorFor(const QString& badge) const {
 
 QString ProfileLobbyWidget::modeAccentFor(const QString& modeName) const {
     if (modeName.contains("1v1", Qt::CaseInsensitive)) {
-        return "#A62626";
+        return "#e00909";
     }
     if (modeName.contains("Kings", Qt::CaseInsensitive)) {
-        return "#275B9A";
+        return "#9600d1";
     }
     if (modeName.contains("Zombie", Qt::CaseInsensitive)) {
         return "#2B7D43";
@@ -1464,6 +1519,18 @@ void ProfileLobbyWidget::refreshProfileUi() {
         }
         avatarLabel_->setPixmap(circularPortraitPixmap(avatar, QSize(42, 42)));
     }
+
+    if (lobbySummaryRankLabel_) {
+        lobbySummaryRankLabel_->setText(userProfile_.badge.trimmed().isEmpty()
+            ? QStringLiteral("Wanderer")
+            : userProfile_.badge.trimmed());
+    }
+    if (lobbySummaryScoreLabel_) {
+        lobbySummaryScoreLabel_->setText(QString::number(qMax(0, userProfile_.score)));
+    }
+    if (lobbySummaryBadgeLabel_) {
+        lobbySummaryBadgeLabel_->setText(QStringLiteral("Badge Art\nComing Soon"));
+    }
 }
 
 void ProfileLobbyWidget::refreshLobbyContext() {
@@ -1471,6 +1538,12 @@ void ProfileLobbyWidget::refreshLobbyContext() {
     // Update lobby copy here to reflect duel setup choices:
     // chosen opponent mode, chosen opponent, and chosen background.
     const CharacterLobbyProfile profile = profileForCharacter(selectedCharacter_.name, selectedCharacter_.specialMoves);
+
+    if (lobbySummaryCharacterLabel_) {
+        lobbySummaryCharacterLabel_->setText(selectedCharacter_.name.trimmed().isEmpty()
+            ? QStringLiteral("Unselected")
+            : selectedCharacter_.name.trimmed());
+    }
 
     if (duelSetupPanel_) {
         // 1v1 teammate:

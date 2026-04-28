@@ -9,7 +9,6 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <QtGlobal>
-#include <limits>
 
 namespace {
 QString resolveSoundAssetPath(const QString& relativePath) {
@@ -81,30 +80,21 @@ void SoundManager::initialize() {
     }
     initialized_ = true;
     playbackClock_.start();
+    musicAvailable_ = true;
+    audioAvailable_ = true;
 
-    soundThrottleMs_.insert(QStringLiteral("ui_click"), 45);
-    soundThrottleMs_.insert(QStringLiteral("ui_confirm"), 70);
-    soundThrottleMs_.insert(QStringLiteral("ui_error"), 90);
-    soundThrottleMs_.insert(QStringLiteral("attack"), 110);
-    soundThrottleMs_.insert(QStringLiteral("hit"), 85);
-    soundThrottleMs_.insert(QStringLiteral("heal"), 140);
-    soundThrottleMs_.insert(QStringLiteral("death"), 180);
-    soundThrottleMs_.insert(QStringLiteral("enemy_death"), 180);
-    soundThrottleMs_.insert(QStringLiteral("projectile"), 120);
-    soundThrottleMs_.insert(QStringLiteral("run"), 180);
-
-    backgroundMusic_ = new QMediaPlayer();
-    audioOutput_ = new QAudioOutput();
+    if (!backgroundMusic_) {
+        backgroundMusic_ = new QMediaPlayer();
+    }
+    if (!audioOutput_) {
+        audioOutput_ = new QAudioOutput();
+    }
 
     backgroundMusic_->setAudioOutput(audioOutput_);
     audioOutput_->setVolume(musicVolume_ / 100.0f);
     QObject::connect(backgroundMusic_, &QMediaPlayer::errorOccurred, backgroundMusic_,
                      [this](QMediaPlayer::Error, const QString&) {
-                         musicAvailable_ = false;
                          currentMusicPath_.clear();
-                         if (backgroundMusic_) {
-                             backgroundMusic_->stop();
-                         }
                      });
 
     loadSound("ui_click", "assets/sound/ui/UIclick.wav");
@@ -135,37 +125,20 @@ void SoundManager::loadSound(const QString &name, const QString &path) {
 
 void SoundManager::playSound(const QString &name) {
     ensureInitialized();
-    if (muted_ || !audioAvailable_) return;
+    if (muted_) return;
 
     auto it = soundEffects_.find(name);
-    if (it == soundEffects_.end() || !it.value()) {
-        return;
-    }
-
-    QSoundEffect *effect = it.value();
-    if (effect->status() != QSoundEffect::Ready) {
-        return;
-    }
-
-    const qint64 now = playbackClock_.isValid() ? playbackClock_.elapsed() : 0;
-    const int minIntervalMs = soundThrottleMs_.value(name, 0);
-    if (minIntervalMs > 0) {
-        const qint64 lastPlayed = lastSoundPlayMs_.value(name, std::numeric_limits<qint64>::min());
-        if (now - lastPlayed < minIntervalMs) {
-            return;
+    if (it != soundEffects_.end() && it.value()) {
+        if (it.value()->isPlaying()) {
+            it.value()->stop();
         }
+        it.value()->play();
     }
-
-    lastSoundPlayMs_.insert(name, now);
-    if (effect->isPlaying()) {
-        effect->stop();
-    }
-    effect->play();
 }
 
 void SoundManager::playMusic(const QString &path) {
     ensureInitialized();
-    if (muted_ || !musicAvailable_ || !backgroundMusic_ || !audioOutput_) return;
+    if (muted_ || !backgroundMusic_ || !audioOutput_) return;
     const QString resolvedPath = resolveSoundAssetPath(path);
     if (resolvedPath.isEmpty()) return;
 
@@ -183,8 +156,14 @@ void SoundManager::playMusic(const QString &path) {
 }
 
 void SoundManager::playMusicCandidates(const QStringList& candidatePaths) {
+    ensureInitialized();
+    if (muted_ || !backgroundMusic_ || !audioOutput_) {
+        return;
+    }
+
     for (const QString& candidate : candidatePaths) {
-        if (resolveSoundAssetPath(candidate).isEmpty()) {
+        const QString resolvedPath = resolveSoundAssetPath(candidate);
+        if (resolvedPath.isEmpty()) {
             continue;
         }
         playMusic(candidate);

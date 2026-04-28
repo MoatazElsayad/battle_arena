@@ -4,6 +4,7 @@
 
 #include <QDateTime>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIntValidator>
 #include <QLabel>
@@ -17,25 +18,47 @@ namespace {
 QString sectionFrameStyle() {
     return QStringLiteral(
         "QFrame {"
-        " background: rgba(18,14,12,0.82);"
-        " border: 1px solid rgba(212,160,23,0.20);"
-        " border-radius: 20px;"
+        " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(33,23,17,0.92), stop:1 rgba(16,11,9,0.97));"
+        " border: 1px solid rgba(212,160,23,0.10);"
+        " border-radius: 24px;"
         "}"
+    );
+}
+
+QString insetPanelStyle() {
+    return QStringLiteral(
+        "QFrame {"
+        " background: rgba(58,39,23,0.34);"
+        " border: 1px solid rgba(212,160,23,0.08);"
+        " border-radius: 18px;"
+        "}"
+    );
+}
+
+QString playerCardStyle() {
+    return QStringLiteral(
+        "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(67,45,26,0.55), stop:1 rgba(28,19,13,0.92));"
+        "border:1px solid rgba(212,160,23,0.10);"
+        "border-radius:18px;"
+        "padding:14px 16px;"
+        "color:#F5E6D3;"
+        "font: 12px 'Segoe UI';"
     );
 }
 
 QString secondaryButtonStyle() {
     return QStringLiteral(
         "QPushButton {"
-        " background: rgba(58,42,27,0.92);"
-        " border: 1px solid rgba(212,160,23,0.30);"
-        " border-radius: 14px;"
-        " color: #F0DEB2;"
+        " background: rgba(67,47,30,0.82);"
+        " border: 1px solid rgba(212,160,23,0.18);"
+        " border-radius: 16px;"
+        " color: #F4DFB6;"
         " font: 700 14px 'Segoe UI';"
-        " padding: 11px 18px;"
+        " padding: 12px 18px;"
         "}"
-        "QPushButton:hover { background: rgba(82,58,35,0.95); }"
-        "QPushButton:disabled { color: rgba(240,222,178,0.42); background: rgba(58,42,27,0.38); }"
+        "QPushButton:hover { background: rgba(87,60,36,0.92); border-color: rgba(255,214,128,0.28); }"
+        "QPushButton:checked { background: rgba(121,82,31,0.92); border-color: rgba(224,178,74,0.30); color: #FFF2CE; }"
+        "QPushButton:disabled { color: rgba(240,222,178,0.42); background: rgba(58,42,27,0.30); border-color: rgba(212,160,23,0.08); }"
     );
 }
 
@@ -43,14 +66,14 @@ QString primaryButtonStyle() {
     return QStringLiteral(
         "QPushButton {"
         " background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #6E0D0D, stop:0.45 #A81616, stop:1 #D84321);"
-        " border: 2px solid #D86A55;"
+        " border: 1px solid rgba(255,178,153,0.38);"
         " border-radius: 16px;"
         " color: #FFE6E6;"
         " font: 800 16px 'Segoe UI';"
         " padding: 13px 22px;"
         "}"
-        "QPushButton:hover { border-color: #FFB299; }"
-        "QPushButton:disabled { color: rgba(255,230,230,0.44); background: rgba(110,13,13,0.34); border-color: rgba(216,106,85,0.35); }"
+        "QPushButton:hover { border-color: rgba(255,178,153,0.62); }"
+        "QPushButton:disabled { color: rgba(255,230,230,0.44); background: rgba(110,13,13,0.34); border-color: rgba(216,106,85,0.18); }"
     );
 }
 
@@ -174,6 +197,7 @@ void LanArenaPage::applySnapshot(const LanSessionSnapshot& snapshot) {
     disconnectButton_->setEnabled(busy || snapshot.state == LanSessionState::ERROR);
     readyButton_->setEnabled(snapshot.remoteConnected);
     readyButton_->setChecked(snapshot.localPlayer.ready);
+    readyButton_->setText(snapshot.localPlayer.ready ? QStringLiteral("Ready Broadcasted") : QStringLiteral("Broadcast Ready"));
     primeButton_->setEnabled(snapshot.canStartMatch && snapshot.localRole == LanRole::HOST);
 
     if (snapshot.canStartMatch && snapshot.localRole == LanRole::HOST) {
@@ -199,46 +223,52 @@ void LanArenaPage::appendLog(const QString& message) {
 void LanArenaPage::setupUi() {
     setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(
-        "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #140F0C, stop:0.48 #21160F, stop:1 #0D0B0A); color: #F5E6D3; }"
+        "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #120D0B, stop:0.35 #1E140F, stop:0.72 #15100D, stop:1 #0A0908); color: #F5E6D3; }"
+        "QLabel#eyebrow { color: rgba(245,213,143,0.62); font: 700 11px 'Segoe UI'; letter-spacing: 2px; }"
         "QLabel#headline { color:#FFF0C6; font: 900 28px 'Segoe UI'; }"
         "QLabel#subheadline { color: rgba(245,230,184,0.78); font: 13px 'Segoe UI'; }"
         "QLabel#sectionTitle { color:#FFF0C6; font: 800 18px 'Segoe UI'; }"
+        "QLabel#microLabel { color: rgba(245,213,143,0.68); font: 700 10px 'Segoe UI'; letter-spacing: 1px; }"
         "QLabel#sectionBody { color: rgba(245,230,184,0.72); font: 12px 'Segoe UI'; }"
         "QLineEdit {"
-        " background-color: rgba(43,31,22,0.94);"
+        " background-color: rgba(49,35,23,0.94);"
         " color: #F5E6D3;"
-        " border: 1px solid #7C5A24;"
-        " border-radius: 12px;"
-        " padding: 10px 12px;"
+        " border: 1px solid rgba(124,90,36,0.34);"
+        " border-radius: 14px;"
+        " padding: 11px 12px;"
         " font: 13px 'Segoe UI';"
         "}"
-        "QLineEdit:focus { border-color: #D4A017; }"
+        "QLineEdit:focus { border-color: rgba(212,160,23,0.40); background: rgba(58,40,24,0.98); }"
         "QPlainTextEdit {"
         " background: rgba(14,10,8,0.90);"
         " color: #EEDCB3;"
-        " border: 1px solid rgba(212,160,23,0.20);"
-        " border-radius: 16px;"
+        " border: 1px solid rgba(212,160,23,0.10);"
+        " border-radius: 18px;"
         " font: 12px 'Consolas';"
-        " padding: 8px;"
+        " padding: 10px;"
         "}"
     );
 
     auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(28, 24, 28, 24);
-    rootLayout->setSpacing(18);
+    rootLayout->setContentsMargins(30, 24, 30, 24);
+    rootLayout->setSpacing(20);
 
     auto* headerRow = new QHBoxLayout();
-    headerRow->setSpacing(14);
+    headerRow->setSpacing(18);
 
     auto* titleWrap = new QVBoxLayout();
     titleWrap->setSpacing(4);
+
+    auto* eyebrow = new QLabel(QStringLiteral("LAN OPERATIONS"), this);
+    eyebrow->setObjectName("eyebrow");
+    titleWrap->addWidget(eyebrow);
 
     auto* title = new QLabel(QStringLiteral("ARENA LINK"), this);
     title->setObjectName("headline");
     titleWrap->addWidget(title);
 
     auto* subtitle = new QLabel(
-        QStringLiteral("Live LAN duel route for two nearby PCs. It now handles hosting, joining, ready sync, ping, realtime handoff, and same-machine rehearsal over localhost."),
+        QStringLiteral("Host, join, sync, and launch a respectful LAN duel flow without leaving the lobby identity behind. This route also supports same-machine rehearsal over localhost."),
         this);
     subtitle->setObjectName("subheadline");
     subtitle->setWordWrap(true);
@@ -254,74 +284,152 @@ void LanArenaPage::setupUi() {
 
     auto* identityFrame = new QFrame(this);
     identityFrame->setStyleSheet(sectionFrameStyle());
-    auto* identityLayout = new QVBoxLayout(identityFrame);
-    identityLayout->setContentsMargins(18, 16, 18, 16);
-    identityLayout->setSpacing(6);
+    auto* identityLayout = new QHBoxLayout(identityFrame);
+    identityLayout->setContentsMargins(22, 18, 22, 18);
+    identityLayout->setSpacing(18);
+
+    auto* identityWrap = new QVBoxLayout();
+    identityWrap->setSpacing(8);
+
+    auto* identityCopyWrap = new QVBoxLayout();
+    identityCopyWrap->setSpacing(2);
+
+    auto* identityEyebrow = new QLabel(QStringLiteral("LINK BRIEF"), identityFrame);
+    identityEyebrow->setObjectName("eyebrow");
+    identityCopyWrap->addWidget(identityEyebrow);
 
     identityLabel_ = new QLabel(identityFrame);
     identityLabel_->setStyleSheet("color:#FFF0C6; font:700 16px 'Segoe UI';");
-    identityLayout->addWidget(identityLabel_);
+    identityLabel_->setWordWrap(true);
+    identityCopyWrap->addWidget(identityLabel_);
+    identityWrap->addLayout(identityCopyWrap);
 
     addressHintLabel_ = new QLabel(identityFrame);
     addressHintLabel_->setObjectName("sectionBody");
     addressHintLabel_->setWordWrap(true);
-    identityLayout->addWidget(addressHintLabel_);
+    identityWrap->addWidget(addressHintLabel_);
+    identityLayout->addLayout(identityWrap, 2);
+
+    auto* statusPanel = new QFrame(identityFrame);
+    statusPanel->setStyleSheet(insetPanelStyle());
+    auto* statusPanelLayout = new QVBoxLayout(statusPanel);
+    statusPanelLayout->setContentsMargins(16, 14, 16, 14);
+    statusPanelLayout->setSpacing(6);
+
+    auto* statusEyebrow = new QLabel(QStringLiteral("SESSION STATUS"), statusPanel);
+    statusEyebrow->setObjectName("eyebrow");
+    statusPanelLayout->addWidget(statusEyebrow);
+
+    auto* badgeRow = new QHBoxLayout();
+    badgeRow->setSpacing(10);
+
+    statusBadgeLabel_ = new QLabel(QStringLiteral("IDLE"), statusPanel);
+    statusBadgeLabel_->setAlignment(Qt::AlignCenter);
+    badgeRow->addWidget(statusBadgeLabel_, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
+    statusTextLabel_ = new QLabel(statusPanel);
+    statusTextLabel_->setObjectName("sectionBody");
+    statusTextLabel_->setWordWrap(true);
+    badgeRow->addWidget(statusTextLabel_, 1);
+    statusPanelLayout->addLayout(badgeRow);
+
+    sessionMetaLabel_ = new QLabel(statusPanel);
+    sessionMetaLabel_->setObjectName("sectionBody");
+    sessionMetaLabel_->setWordWrap(true);
+    statusPanelLayout->addWidget(sessionMetaLabel_);
+
+    identityLayout->addWidget(statusPanel, 1);
     rootLayout->addWidget(identityFrame);
 
     auto* bodyRow = new QHBoxLayout();
-    bodyRow->setSpacing(18);
+    bodyRow->setSpacing(20);
 
     auto* controlFrame = new QFrame(this);
     controlFrame->setStyleSheet(sectionFrameStyle());
     auto* controlLayout = new QVBoxLayout(controlFrame);
-    controlLayout->setContentsMargins(20, 18, 20, 18);
-    controlLayout->setSpacing(12);
+    controlLayout->setContentsMargins(22, 20, 22, 20);
+    controlLayout->setSpacing(14);
+
+    auto* controlEyebrow = new QLabel(QStringLiteral("HOST OR JOIN"), controlFrame);
+    controlEyebrow->setObjectName("eyebrow");
+    controlLayout->addWidget(controlEyebrow);
 
     auto* controlTitle = new QLabel(QStringLiteral("Session Controls"), controlFrame);
     controlTitle->setObjectName("sectionTitle");
     controlLayout->addWidget(controlTitle);
 
     auto* controlBody = new QLabel(
-        QStringLiteral("Host a room on your LAN or join a nearby host by IP. For same-PC testing, launch a second copy and join 127.0.0.1. Your selected fighter from the lobby is pushed into the session automatically."),
+        QStringLiteral("Pick a host address, confirm the duel port, then either open the arena for your LAN or join a nearby machine. Your selected fighter from the lobby travels into the session automatically."),
         controlFrame);
     controlBody->setObjectName("sectionBody");
     controlBody->setWordWrap(true);
     controlLayout->addWidget(controlBody);
 
-    hostAddressEdit_ = new QLineEdit(controlFrame);
-    hostAddressEdit_->setPlaceholderText(QStringLiteral("Host IP, for example 192.168.1.14 or 127.0.0.1"));
-    controlLayout->addWidget(hostAddressEdit_);
+    auto* inputPanel = new QFrame(controlFrame);
+    inputPanel->setStyleSheet(insetPanelStyle());
+    auto* inputGrid = new QGridLayout(inputPanel);
+    inputGrid->setContentsMargins(16, 14, 16, 14);
+    inputGrid->setHorizontalSpacing(12);
+    inputGrid->setVerticalSpacing(8);
 
-    portEdit_ = new QLineEdit(QString::number(kDefaultLanPort), controlFrame);
+    auto* hostLabel = new QLabel(QStringLiteral("HOST ADDRESS"), inputPanel);
+    hostLabel->setObjectName("microLabel");
+    inputGrid->addWidget(hostLabel, 0, 0);
+
+    auto* portLabel = new QLabel(QStringLiteral("DUEL PORT"), inputPanel);
+    portLabel->setObjectName("microLabel");
+    inputGrid->addWidget(portLabel, 0, 1);
+
+    hostAddressEdit_ = new QLineEdit(inputPanel);
+    hostAddressEdit_->setPlaceholderText(QStringLiteral("Host IP, for example 192.168.1.14 or 127.0.0.1"));
+    inputGrid->addWidget(hostAddressEdit_, 1, 0);
+
+    portEdit_ = new QLineEdit(QString::number(kDefaultLanPort), inputPanel);
     portEdit_->setValidator(new QIntValidator(1024, 65535, portEdit_));
     portEdit_->setPlaceholderText(QStringLiteral("Port"));
-    controlLayout->addWidget(portEdit_);
+    inputGrid->addWidget(portEdit_, 1, 1);
+    inputGrid->setColumnStretch(0, 3);
+    inputGrid->setColumnStretch(1, 1);
+    controlLayout->addWidget(inputPanel);
 
     hostButton_ = new QPushButton(QStringLiteral("Host Arena Link"), controlFrame);
     hostButton_->setStyleSheet(primaryButtonStyle());
     connect(hostButton_, &QPushButton::clicked, this, &LanArenaPage::hostSession);
-    controlLayout->addWidget(hostButton_);
 
     joinButton_ = new QPushButton(QStringLiteral("Join Host"), controlFrame);
     joinButton_->setStyleSheet(secondaryButtonStyle());
     connect(joinButton_, &QPushButton::clicked, this, &LanArenaPage::joinSession);
-    controlLayout->addWidget(joinButton_);
 
     readyButton_ = new QPushButton(QStringLiteral("Broadcast Ready"), controlFrame);
     readyButton_->setCheckable(true);
     readyButton_->setStyleSheet(secondaryButtonStyle());
     connect(readyButton_, &QPushButton::toggled, this, &LanArenaPage::readyToggled);
-    controlLayout->addWidget(readyButton_);
 
     primeButton_ = new QPushButton(QStringLiteral("Prime Match Sync"), controlFrame);
     primeButton_->setStyleSheet(primaryButtonStyle());
     connect(primeButton_, &QPushButton::clicked, this, &LanArenaPage::primeMatch);
-    controlLayout->addWidget(primeButton_);
 
     disconnectButton_ = new QPushButton(QStringLiteral("Disconnect"), controlFrame);
     disconnectButton_->setStyleSheet(secondaryButtonStyle());
     connect(disconnectButton_, &QPushButton::clicked, this, &LanArenaPage::disconnectSession);
-    controlLayout->addWidget(disconnectButton_);
+    
+    auto* actionGrid = new QGridLayout();
+    actionGrid->setHorizontalSpacing(12);
+    actionGrid->setVerticalSpacing(12);
+    actionGrid->addWidget(hostButton_, 0, 0);
+    actionGrid->addWidget(joinButton_, 0, 1);
+    actionGrid->addWidget(readyButton_, 1, 0);
+    actionGrid->addWidget(primeButton_, 1, 1);
+    actionGrid->addWidget(disconnectButton_, 2, 0, 1, 2);
+    controlLayout->addLayout(actionGrid);
+
+    auto* controlFootnote = new QLabel(
+        QStringLiteral("For one-machine rehearsal, launch a second copy of the game and join 127.0.0.1."),
+        controlFrame);
+    controlFootnote->setObjectName("sectionBody");
+    controlFootnote->setWordWrap(true);
+    controlLayout->addWidget(controlFootnote);
+
     controlLayout->addStretch(1);
 
     bodyRow->addWidget(controlFrame, 4);
@@ -329,50 +437,40 @@ void LanArenaPage::setupUi() {
     auto* overviewFrame = new QFrame(this);
     overviewFrame->setStyleSheet(sectionFrameStyle());
     auto* overviewLayout = new QVBoxLayout(overviewFrame);
-    overviewLayout->setContentsMargins(20, 18, 20, 18);
-    overviewLayout->setSpacing(12);
+    overviewLayout->setContentsMargins(22, 20, 22, 20);
+    overviewLayout->setSpacing(14);
 
-    auto* statusRow = new QHBoxLayout();
-    statusRow->setSpacing(10);
+    auto* overviewEyebrow = new QLabel(QStringLiteral("DUEL BRIDGE"), overviewFrame);
+    overviewEyebrow->setObjectName("eyebrow");
+    overviewLayout->addWidget(overviewEyebrow);
 
-    statusBadgeLabel_ = new QLabel(QStringLiteral("IDLE"), overviewFrame);
-    statusBadgeLabel_->setAlignment(Qt::AlignCenter);
-    statusRow->addWidget(statusBadgeLabel_, 0, Qt::AlignTop);
-
-    auto* statusCopyWrap = new QVBoxLayout();
-    statusCopyWrap->setSpacing(4);
-    statusTextLabel_ = new QLabel(overviewFrame);
-    statusTextLabel_->setObjectName("sectionBody");
-    statusTextLabel_->setWordWrap(true);
-    statusCopyWrap->addWidget(statusTextLabel_);
-
-    sessionMetaLabel_ = new QLabel(overviewFrame);
-    sessionMetaLabel_->setObjectName("sectionBody");
-    sessionMetaLabel_->setWordWrap(true);
-    statusCopyWrap->addWidget(sessionMetaLabel_);
-    statusRow->addLayout(statusCopyWrap, 1);
-    overviewLayout->addLayout(statusRow);
+    auto* overviewTitle = new QLabel(QStringLiteral("Connected Gladiators"), overviewFrame);
+    overviewTitle->setObjectName("sectionTitle");
+    overviewLayout->addWidget(overviewTitle);
 
     auto* playerRow = new QHBoxLayout();
     playerRow->setSpacing(12);
 
     localPlayerLabel_ = new QLabel(overviewFrame);
-    localPlayerLabel_->setStyleSheet(
-        "background: rgba(212,160,23,0.08); border:1px solid rgba(212,160,23,0.20); border-radius:14px; padding:12px; color:#F5E6D3; font: 12px 'Segoe UI';"
-    );
+    localPlayerLabel_->setStyleSheet(playerCardStyle());
     localPlayerLabel_->setWordWrap(true);
     playerRow->addWidget(localPlayerLabel_, 1);
 
     remotePlayerLabel_ = new QLabel(overviewFrame);
-    remotePlayerLabel_->setStyleSheet(
-        "background: rgba(212,160,23,0.08); border:1px solid rgba(212,160,23,0.20); border-radius:14px; padding:12px; color:#F5E6D3; font: 12px 'Segoe UI';"
-    );
+    remotePlayerLabel_->setStyleSheet(playerCardStyle());
     remotePlayerLabel_->setWordWrap(true);
     playerRow->addWidget(remotePlayerLabel_, 1);
     overviewLayout->addLayout(playerRow);
 
     duelHintLabel_ = new QLabel(overviewFrame);
-    duelHintLabel_->setObjectName("sectionBody");
+    duelHintLabel_->setStyleSheet(
+        "background: rgba(74,52,30,0.40);"
+        "border:1px solid rgba(212,160,23,0.08);"
+        "border-radius:14px;"
+        "padding:12px 14px;"
+        "color: rgba(245,230,184,0.78);"
+        "font: 12px 'Segoe UI';"
+    );
     duelHintLabel_->setWordWrap(true);
     overviewLayout->addWidget(duelHintLabel_);
 
@@ -383,6 +481,7 @@ void LanArenaPage::setupUi() {
     eventLog_ = new QPlainTextEdit(overviewFrame);
     eventLog_->setReadOnly(true);
     eventLog_->setMaximumBlockCount(220);
+    eventLog_->setMinimumHeight(320);
     overviewLayout->addWidget(eventLog_, 1);
 
     bodyRow->addWidget(overviewFrame, 6);
@@ -397,7 +496,7 @@ void LanArenaPage::setupUi() {
 void LanArenaPage::refreshIdentityLabels() {
     const QString safeUser = username_.isEmpty() ? QStringLiteral("Player_01") : username_;
     const QString safeFighter = fighterName_.isEmpty() ? QStringLiteral("Knight") : fighterName_;
-    identityLabel_->setText(QString("Identity synced from lobby: %1 using %2").arg(safeUser, safeFighter));
+    identityLabel_->setText(QString("Lobby identity synced for <b>%1</b> using <b>%2</b>.").arg(safeUser, safeFighter));
 }
 
 void LanArenaPage::refreshAddressHints() {
@@ -413,7 +512,7 @@ void LanArenaPage::refreshAddressHints() {
         hints << QStringLiteral("127.0.0.1");
     }
 
-    addressHintLabel_->setText(QString("Nearby PCs should join one of these LAN addresses: %1. Same-machine rehearsal can use 127.0.0.1.").arg(hints.join(QStringLiteral("  |  "))));
+    addressHintLabel_->setText(QString("Reach this arena from nearby PCs with: %1. For same-machine rehearsal, use 127.0.0.1.").arg(hints.join(QStringLiteral("  |  "))));
 }
 
 quint16 LanArenaPage::selectedPort() const {
@@ -431,7 +530,12 @@ QString LanArenaPage::buildPlayerSummary(const QString& title, const LanPlayerIn
     const QString linkState = connected ? QStringLiteral("Linked") : QStringLiteral("Waiting");
     const QString readyState = player.ready ? QStringLiteral("READY") : QStringLiteral("STAGING");
 
-    return QString("<b>%1</b><br>Name: %2<br>Fighter: %3<br>Connection: %4<br>State: %5")
+    return QString(
+        "<span style='color:#FFF0C6; font-size:16px; font-weight:800;'>%1</span>"
+        "<br><span style='color:#F6D98E;'>Name</span>  %2"
+        "<br><span style='color:#F6D98E;'>Fighter</span>  %3"
+        "<br><span style='color:#F6D98E;'>Connection</span>  %4"
+        "<br><span style='color:#F6D98E;'>State</span>  %5")
         .arg(title, safeName, safeFighter, linkState, readyState);
 }
 
@@ -471,7 +575,7 @@ QString LanArenaPage::badgeStyleForState(LanSessionState state) const {
 
     return QString(
         "color:#FFF0C6; font:800 11px 'Segoe UI'; letter-spacing:1px;"
-        "padding:7px 12px; border-radius:12px;"
+        "padding:8px 14px; border-radius:14px;"
         "background:%1; border:1px solid %2;"
     ).arg(background, border);
 }

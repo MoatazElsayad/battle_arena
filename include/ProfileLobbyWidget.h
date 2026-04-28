@@ -144,6 +144,10 @@ private:
     QLabel* previewEyebrowLabel_;
     QLabel* previewTitleLabel_;
     QLabel* previewModeChipLabel_;
+    QLabel* lobbySummaryCharacterLabel_;
+    QLabel* lobbySummaryRankLabel_;
+    QLabel* lobbySummaryScoreLabel_;
+    QLabel* lobbySummaryBadgeLabel_;
     QLabel* previewPortraitLabel_;
     QLabel* previewDescriptionLabel_;
     QLabel* previewMoveLabel_;

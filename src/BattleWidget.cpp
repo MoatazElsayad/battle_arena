@@ -2031,6 +2031,9 @@ void BattleWidget::updatePlayerMovement(double dt) {
                              st == AnimationState::HURT || st == AnimationState::DEATH);
         if (!locked) {
             if (movingLeft_ || movingRight_) {
+                if (st != AnimationState::RUN && soundManager_) {
+                    soundManager_->playRun();
+                }
                 playerAnimChar_->setAnimationState(AnimationState::RUN);
             } else {
                 playerAnimChar_->setAnimationState(AnimationState::IDLE);
@@ -2139,6 +2142,9 @@ void BattleWidget::tryPlayerAttack(double dt) {
     }
 
     double distToEnemy = std::abs(enemyX_ - playerX_);
+    if (soundManager_) {
+        soundManager_->playAttack();
+    }
     
     if (distToEnemy <= ATTACK_RANGE) {
         int damage = player->calculateDamage();
@@ -2175,9 +2181,6 @@ void BattleWidget::tryPlayerAttack(double dt) {
             }
         }
     } else {
-        if (soundManager_) {
-            soundManager_->playAttack();
-        }
         statusMessage_ = "Miss! Too far away!";
         statusDisplayTime_ = 1.0;
         ++levelBattleReport_.playerMisses;

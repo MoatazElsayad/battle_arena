@@ -20,7 +20,7 @@ void OpenRouterClient::SendRequest(QString prompt,function<void(QString)> callba
 {
   QUrl url("https://openrouter.ai/api/v1/chat/completions");
   QNetworkRequest request(url);
-  request.setRawHeader("Authorization", "Bearer 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");
+  request.setRawHeader("Authorization", "Bearer " + qgetenv("OPENROUTER_API_KEY"));
   request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
   QJsonObject json;
