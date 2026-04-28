@@ -11,3 +11,14 @@
 // - requestRecommendation(...)
 // - parseRecommendation(...)
 // - fallbackRecommendation(...)
+
+
+#include <iostream>
+#include <OpenRouterClient.h>
+#include <Enums.h>
+using namespace std;
+
+QString build_prompt(const CombatSnapshot& snapshot);
+void CombatAiAdvisor::requestAdvice(const CombatSnapshot& snapshot);
+void CombatAiAdvisor::applyRecommendation(const AiRecommendation& recommendation);
+AiRecommendaiton CombatAiAdvisor::ParseResponse(QString content);
