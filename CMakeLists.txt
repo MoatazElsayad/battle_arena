@@ -9,7 +9,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 COMPONENTS Widgets Multimedia REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Multimedia Network REQUIRED)
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
@@ -17,52 +17,66 @@ add_executable(${PROJECT_NAME}
     src/AnimationManager.cpp
     src/BattleWidget.cpp
     src/Character.cpp
+    src/ChronicleAiAdvisor.cpp
+    src/ChronicleOpenRouterClient.cpp
     src/DatabaseManager.cpp
     src/Enemy.cpp
+    src/ExhibitionSetupPage.cpp
     src/GameManager.cpp
     src/GamePage.cpp
     src/GameOverPage.cpp
     src/InputHandler.cpp
     src/LeaderboardPage.cpp
-    src/LoginPage.cpp
+    src/LanArenaPage.cpp
+    src/LanProtocol.cpp
+    src/LanSessionManager.cpp
+    src/LevelTransitionChroniclePage.cpp
     src/MainWindow.cpp
     src/PausePage.cpp
     src/Player.cpp
     src/ProfilePage.cpp
     src/ProfileLobbyWidget.cpp
-    src/Registration.cpp
+    src/SaveKingIntroPage.cpp
     src/SettingsPage.cpp
     src/SoundManager.cpp
+    src/WebsiteSyncClient.cpp
 
     include/AnimatedCharacter.h
     include/AnimationManager.h
     include/BattleWidget.h
     include/Character.h
+    include/ChronicleAiAdvisor.h
+    include/ChronicleAiTypes.h
+    include/ChronicleOpenRouterClient.h
     include/DatabaseManager.h
     include/Enemy.h
     include/Enums.h
+    include/ExhibitionSetupPage.h
     include/GameManager.h
     include/GamePage.h
     include/GameOverPage.h
     include/InputHandler.h
     include/LeaderboardPage.h
-    include/LoginPage.h
+    include/LanArenaPage.h
+    include/LanProtocol.h
+    include/LanSessionManager.h
+    include/LevelTransitionChroniclePage.h
     include/MainWindow.h
+    include/NetTypes.h
     include/PausePage.h
     include/Player.h
     include/ProfilePage.h
     include/ProfileLobbyWidget.h
-    include/Registration.h
+    include/SaveKingIntroPage.h
     include/SettingsPage.h
     include/SoundManager.h
+    include/WebsiteSyncClient.h
 
     ui/GameOverPage.ui
-    ui/LoginPage.ui
     ui/MainMenuPage.ui
     ui/MainWindow.ui
     ui/PausePage.ui
     ui/ProfilePage.ui
-    ui/Registration.ui
     ui/WelcomePage.ui
 )
 
@@ -75,4 +89,5 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
         Qt6::Widgets
         Qt6::Multimedia
+        Qt6::Network
 )

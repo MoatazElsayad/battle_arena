@@ -1,4 +1,4 @@
-#ifndef BATTLEWIDGET_H
+﻿#ifndef BATTLEWIDGET_H
 #define BATTLEWIDGET_H
 
 #include <QWidget>
@@ -6,9 +6,13 @@
 #include <QElapsedTimer>
 #include <QPixmap>
 #include <QColor>
+#include "ChronicleAiTypes.h"
 #include "Enums.h"
+#include "NetTypes.h"
 
 class GameManager;
+class LanSessionManager;
+class Character;
 class Player;
 class Enemy;
 class SoundManager;
@@ -26,13 +30,20 @@ public:
     ~BattleWidget();
 
     void setGameManager(GameManager *gm);
+    void setLanSessionManager(LanSessionManager *manager);
     void setSoundManager(SoundManager *sm);
     void startBattle();
+    void startLevelTransition();
     void stopBattle();
-    void refreshForNewMatch();
+    void pauseBattle();
+    void resumeBattle();
+    bool isBattleRunning() const;
+    bool isPaused() const;
+    ChronicleBattleReport levelBattleReport() const;
 
 signals:
     void battleFinished();
+    void levelTransitionFinished();
     void pauseRequested();
 
 protected:
@@ -48,8 +59,24 @@ private:
     void drawArenaBackground(QPainter &painter);
     void refreshArenaBackground();
     void loadPrototypeAnimations();
+    void loadBattleProfilePortraits();
+    void ensureArcenArrowAssetsLoaded();
     void loadCharacterAnimations(PlayerType type);
+    void loadOpponentCharacterAnimations(PlayerType type);
     void loadEnemyAnimations(EnemyType type);
+    quint8 currentLanInputBits() const;
+    void syncHealthToTarget(Character* character, int targetHp) const;
+    double mirrorArenaX(double x) const;
+    void updateRemoteLanMovement(double dt, quint8 remoteInputBits);
+    void applyGuestCombatState(const LanCombatState& state);
+    void pushHostCombatState(bool finished);
+    void tryRemoteLanAttack(AnimationState attackState);
+    void tryRemoteLanHeal();
+    void applyCombatantStats(const LanCombatantStats& localStats,
+                             const LanCombatantStats& enemyStats,
+                             bool localVictory,
+                             double battleDurationSeconds,
+                             int currentScore);
     void updatePlayerMovement(double dt);
     void updateEnemyAI(double dt);
     void tryPlayerAttack(double dt);
@@ -59,6 +86,11 @@ private:
     void drawHealthBar(QPainter &painter, double x, double y, int hp, int maxHp);
     void drawStatus(QPainter &painter);
     void drawHUD(QPainter &painter);
+    void drawCountdownOverlay(QPainter &painter);
+    void drawLevelTransitionPortal(QPainter &painter);
+    void drawFinalKingStageScene(QPainter &painter);
+    void drawFinalRescueTransition(QPainter &painter);
+    void drawFinalRescueDialogue(QPainter &painter);
     void drawFighterWithAnimation(QPainter &painter, double x, double y, int hp, int maxHp,
                                    const QString &name, AnimatedCharacter* animChar, bool isPlayer);
     void drawArcenProjectile(QPainter &painter);
@@ -68,10 +100,9 @@ private:
     void spawnEnemyProjectile(EnemyType type, int damage);
     void updateEnemyProjectile(double dt);
     void tryPlayerHeal();
-    
-    void syncDuelAnimations();
 
     GameManager *gameManager_;
+    LanSessionManager *lanSessionManager_;
     SoundManager *soundManager_;
     AnimatedCharacter *playerAnimChar_;
     AnimatedCharacter *enemyAnimChar_;
@@ -79,15 +110,19 @@ private:
     AnimationManager *enemyAnimManager_;
     QPixmap playerFallbackSprite_;
     QPixmap enemyFallbackSprite_;
+    QPixmap playerProfilePortrait_;
+    QPixmap enemyProfilePortrait_;
     QPixmap arcenArrowSprite_;
     QPixmap arcenArrowMoveSprite_;
     QPixmap enemyProjectileMoveSprite_;
     QPixmap enemyProjectileExplodeSprite_;
+    QPixmap levelTransitionPortalSpriteSheet_;
     QPixmap arenaBackgroundPlaceholder_;
     QColor arenaGroundBaseColor_;
     
     QTimer frameTimer_;
     QElapsedTimer elapsedTimer_;
+    QElapsedTimer levelClock_;
 
     // Input state
     bool movingLeft_;
@@ -103,11 +138,17 @@ private:
     double healCooldown_;
     double battleEndDelay_;
     double introLockTime_;
+    double levelTransitionTime_;
+    double levelTransitionStartPlayerX_;
+    double levelTransitionStartKingX_;
 
     // HUD state
     double playerHpDisplay_;
     double enemyHpDisplay_;
     int score_;
+    int duelRemoteScore_;
+    ChronicleBattleReport levelBattleReport_;
+    ChronicleBattleReport remoteBattleReport_;
 
     // Positions
     double playerX_;
@@ -124,6 +165,7 @@ private:
     int arcenProjectileFrame_;
     bool enemyProjectileActive_;
     bool enemyProjectileExploding_;
+    bool enemyProjectileUsesArcenArrow_;
     bool enemyProjectileFacingRight_;
     EnemyType enemyProjectileType_;
     int enemyProjectileDamage_;
@@ -138,6 +180,15 @@ private:
     QString statusMessage_;
     double statusDisplayTime_;
     AnimationState queuedPlayerAttackState_;
+    bool levelTransitionActive_;
+    bool finalRescueTransitionActive_;
+    bool lanBridgeActive_;
+    bool lanHostAuthority_;
+    bool lanGuestStateSeen_;
+    quint8 lastSentLanInputBits_;
+    quint8 lastRemoteLanInputBits_;
+    quint32 lanStateTick_;
+    double enemyHealCooldown_;
 
     static constexpr double PLAYER_START_X = 150.0;
     static constexpr double ENEMY_START_X = 850.0;
@@ -152,6 +203,8 @@ private:
     static constexpr double ENEMY_PROJECTILE_HIT_WIDTH = 52.0;
     static constexpr double PLAYER_ATTACK_COOLDOWN = 0.8;
     static constexpr double ENEMY_ATTACK_COOLDOWN = 1.2;
+    static constexpr double BATTLE_COUNTDOWN_DURATION = 3.25;
+    static constexpr double LEVEL_TRANSITION_DURATION = 2.9;
 };
 
 #endif // BATTLEWIDGET_H

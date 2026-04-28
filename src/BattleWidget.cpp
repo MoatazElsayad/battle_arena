@@ -1,5 +1,6 @@
 #include "BattleWidget.h"
 #include "GameManager.h"
+#include "LanSessionManager.h"
 #include "Player.h"
 #include "Enemy.h"
 #include "SoundManager.h"
@@ -17,6 +18,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QHash>
 #include <QImage>
 
 namespace {
@@ -34,6 +36,124 @@ QString resolveAssetPath(const QString& relativePath) {
         }
     }
     return QString();
+}
+
+QString playerProfilePath(PlayerType type) {
+    switch (type) {
+        case PlayerType::ARCEN:
+            return QStringLiteral("assets/players/Arcen/profile.png");
+        case PlayerType::DEMON_SLAYER:
+            return QStringLiteral("assets/players/Demon_Slayer/profile.png");
+        case PlayerType::FANTASY_WARRIOR:
+            return QStringLiteral("assets/players/Fantasy_Warrior/profile.png");
+        case PlayerType::HUNTRESS:
+            return QStringLiteral("assets/players/Huntress/profile.png");
+        case PlayerType::KNIGHT:
+            return QStringLiteral("assets/players/Knight/profile.png");
+        case PlayerType::MARTIAL:
+            return QStringLiteral("assets/players/Martial/profile.png");
+        case PlayerType::MARTIAL_HERO:
+            return QStringLiteral("assets/players/Martial_Hero/profile.png");
+        case PlayerType::MEDIEVAL_WARRIOR:
+            return QStringLiteral("assets/players/Medieval_Warrior/profile.png");
+        case PlayerType::WIZARD:
+            return QStringLiteral("assets/players/Wizard/profile.png");
+    }
+    return QString();
+}
+
+QString enemyProfilePath(EnemyType type) {
+    switch (type) {
+        case EnemyType::FIRE_WORM:
+            return QStringLiteral("assets/enemies/Fire_Worm/profile.png");
+        case EnemyType::FIRE_WIZARD:
+            return QStringLiteral("assets/enemies/Fire_Wizard/profile.png");
+        case EnemyType::FLYING_DEMON:
+            return QStringLiteral("assets/enemies/Flying_Demon/profile.png");
+        case EnemyType::NIGHTWEAVER:
+            return QStringLiteral("assets/enemies/Nightweaver/profile.png");
+        case EnemyType::EVIL_WIZARD:
+            return QStringLiteral("assets/enemies/Evil_Wizard/profile.png");
+        case EnemyType::BLACK_WEREWOLF:
+        case EnemyType::RED_WEREWOLF:
+        case EnemyType::WHITE_WEREWOLF:
+            return QStringLiteral("assets/beasts/werewolf/profile.png");
+    }
+    return QString();
+}
+
+QPixmap loadPortraitPixmap(const QStringList& relativePaths) {
+    for (const QString& relativePath : relativePaths) {
+        const QString resolved = resolveAssetPath(relativePath);
+        if (resolved.isEmpty()) {
+            continue;
+        }
+
+        const QPixmap portrait(resolved);
+        if (!portrait.isNull()) {
+            return portrait;
+        }
+    }
+
+    return QPixmap();
+}
+
+void drawPortraitBadge(QPainter& painter,
+                       const QRectF& rect,
+                       const QPixmap& portrait,
+                       const QColor& rimColor,
+                       const QString& fallbackLabel) {
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0, 0, 0, 40));
+    painter.drawEllipse(rect.adjusted(-8.0, -4.0, 8.0, 10.0));
+
+    const QRectF shadowRect = rect.adjusted(-2.0, 4.0, 2.0, 8.0);
+    painter.setBrush(QColor(0, 0, 0, 78));
+    painter.drawEllipse(shadowRect);
+
+    const QRectF outerRing = rect.adjusted(-3.0, -3.0, 3.0, 3.0);
+    painter.setBrush(QColor(32, 18, 11, 235));
+    painter.setPen(QPen(rimColor, 3.1));
+    painter.drawEllipse(outerRing);
+
+    QPainterPath clipPath;
+    clipPath.addEllipse(rect);
+    painter.setClipPath(clipPath);
+
+    if (!portrait.isNull()) {
+        const QPixmap scaled = portrait.scaled(rect.size().toSize(),
+                                               Qt::KeepAspectRatioByExpanding,
+                                               Qt::SmoothTransformation);
+        const QRectF sourceRect((scaled.width() - rect.width()) * 0.5,
+                                (scaled.height() - rect.height()) * 0.5,
+                                rect.width(),
+                                rect.height());
+        painter.drawPixmap(rect, scaled, sourceRect);
+    } else {
+        QLinearGradient fallbackGradient(rect.topLeft(), rect.bottomRight());
+        fallbackGradient.setColorAt(0.0, QColor("#4B2D1A"));
+        fallbackGradient.setColorAt(1.0, QColor("#8C5E2D"));
+        painter.setBrush(fallbackGradient);
+        painter.drawEllipse(rect);
+
+        painter.setClipping(false);
+        painter.setPen(QColor("#FFF4D2"));
+        QFont fallbackFont("Segoe UI", qMax(10, static_cast<int>(rect.height() * 0.35)), QFont::Black);
+        painter.setFont(fallbackFont);
+        painter.drawText(rect.toRect(), Qt::AlignCenter, fallbackLabel.left(2).toUpper());
+        painter.restore();
+        return;
+    }
+
+    painter.setClipping(false);
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(QColor(255, 255, 255, 84), 1.6));
+    painter.drawEllipse(rect.adjusted(1.0, 1.0, -1.0, -1.0));
+
+    painter.restore();
 }
 
 QPixmap loadArenaBackgroundForLevel(int level) {
@@ -56,6 +176,84 @@ QPixmap loadArenaBackgroundForLevel(int level) {
     }
 
     return QPixmap();
+}
+
+QPixmap loadExhibitionArenaBackground(const QString& arenaName) {
+    const QString lowered = arenaName.trimmed().toLower();
+
+    QString relativePath = QStringLiteral("assets/backgrounds/Level_1.png");
+    if (lowered == QStringLiteral("ember court")) {
+        relativePath = QStringLiteral("assets/backgrounds/Level_2.png");
+    } else if (lowered == QStringLiteral("forest temple")) {
+        relativePath = QStringLiteral("assets/backgrounds/Level_3.png");
+    } else if (lowered == QStringLiteral("night fortress")) {
+        relativePath = QStringLiteral("assets/backgrounds/Level_4.png");
+    } else if (lowered == QStringLiteral("lava pit")) {
+        relativePath = QStringLiteral("assets/backgrounds/Level_5.png");
+    } else if (lowered == QStringLiteral("sky ruins")) {
+        relativePath = QStringLiteral("assets/backgrounds/Level_6.png");
+    }
+
+    const QString resolved = resolveAssetPath(relativePath);
+    if (resolved.isEmpty()) {
+        return QPixmap();
+    }
+
+    return QPixmap(resolved);
+}
+
+QPixmap firstFrameFromSheet(const QString& relativePath, int frameCount) {
+    static QHash<QString, QPixmap> cache;
+    const QString key = relativePath + "|" + QString::number(frameCount);
+    if (cache.contains(key)) {
+        return cache.value(key);
+    }
+
+    const QString resolved = resolveAssetPath(relativePath);
+    if (resolved.isEmpty()) {
+        return QPixmap();
+    }
+
+    const QPixmap sheet(resolved);
+    if (sheet.isNull() || frameCount <= 0) {
+        return QPixmap();
+    }
+
+    const int frameWidth = qMax(1, sheet.width() / frameCount);
+    const QPixmap frame = sheet.copy(0, 0, frameWidth, sheet.height());
+    cache.insert(key, frame);
+    return frame;
+}
+
+QPixmap frameFromSheet(const QString& relativePath, int frameCount, double seconds, int frameSpeedMs) {
+    static QHash<QString, QPixmap> sheetCache;
+    static QHash<QString, QPixmap> frameCache;
+    const QString resolved = resolveAssetPath(relativePath);
+    if (resolved.isEmpty() || frameCount <= 0) {
+        return QPixmap();
+    }
+
+    if (!sheetCache.contains(resolved)) {
+        sheetCache.insert(resolved, QPixmap(resolved));
+    }
+
+    const QPixmap sheet = sheetCache.value(resolved);
+    if (sheet.isNull()) {
+        return QPixmap();
+    }
+
+    const int frameWidth = qMax(1, sheet.width() / frameCount);
+    const int frameIndex = qBound(0,
+                                  static_cast<int>((seconds * 1000.0) / qMax(1, frameSpeedMs)) % frameCount,
+                                  frameCount - 1);
+    const QString frameKey = resolved + "|" + QString::number(frameCount) + "|" + QString::number(frameIndex);
+    if (frameCache.contains(frameKey)) {
+        return frameCache.value(frameKey);
+    }
+
+    const QPixmap frame = sheet.copy(frameIndex * frameWidth, 0, frameWidth, sheet.height());
+    frameCache.insert(frameKey, frame);
+    return frame;
 }
 
 QColor sampleGroundColorFromBackground(const QPixmap& pixmap) {
@@ -115,6 +313,15 @@ QRect opaqueBounds(const QPixmap& px) {
         return QRect();
     }
 
+    static QHash<quint64, QRect> cache;
+    const quint64 key = px.cacheKey();
+    if (key != 0) {
+        const auto it = cache.constFind(key);
+        if (it != cache.cend()) {
+            return it.value();
+        }
+    }
+
     const QImage img = px.toImage().convertToFormat(QImage::Format_ARGB32);
     const int w = img.width();
     const int h = img.height();
@@ -137,16 +344,76 @@ QRect opaqueBounds(const QPixmap& px) {
     }
 
     if (maxX < minX || maxY < minY) {
-        return QRect(0, 0, w, h);
+        const QRect fullBounds(0, 0, w, h);
+        if (key != 0) {
+            cache.insert(key, fullBounds);
+        }
+        return fullBounds;
     }
 
-    return QRect(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    const QRect bounds(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    if (key != 0) {
+        cache.insert(key, bounds);
+    }
+    return bounds;
+}
+
+QString playerTypeLabel(PlayerType type) {
+    return QString::fromStdString(InputHandler::playerTypeToDisplayName(type));
+}
+
+QString enemyTypeLabel(EnemyType type) {
+    switch (type) {
+        case EnemyType::FIRE_WORM: return "Fire Worm";
+        case EnemyType::FIRE_WIZARD: return "Fire Wizard";
+        case EnemyType::FLYING_DEMON: return "Flying Demon";
+        case EnemyType::NIGHTWEAVER: return "Nightweaver";
+        case EnemyType::EVIL_WIZARD: return "Evil Wizard";
+        case EnemyType::BLACK_WEREWOLF: return "Black Werewolf";
+        case EnemyType::RED_WEREWOLF: return "Red Werewolf";
+        case EnemyType::WHITE_WEREWOLF: return "White Werewolf";
+    }
+    return "Enemy";
+}
+
+void drawGroundedSprite(QPainter& painter,
+                        const QPixmap& sprite,
+                        qreal centerX,
+                        qreal groundY,
+                        qreal targetHeight,
+                        bool flip = false,
+                        qreal opacity = 1.0) {
+    if (sprite.isNull() || targetHeight <= 0.0) {
+        return;
+    }
+
+    const QRect visibleBounds = opaqueBounds(sprite);
+    const qreal scale = targetHeight / qMax(1, visibleBounds.height());
+    const qreal scaledWidth = sprite.width() * scale;
+    const qreal scaledHeight = sprite.height() * scale;
+    const qreal visibleCenterX = visibleBounds.x() + visibleBounds.width() * 0.5;
+    const qreal visibleBottomY = visibleBounds.y() + visibleBounds.height();
+    const QRectF destRect(centerX - visibleCenterX * scale,
+                          groundY - visibleBottomY * scale,
+                          scaledWidth,
+                          scaledHeight);
+
+    painter.save();
+    painter.setOpacity(opacity);
+    if (flip) {
+        painter.translate(destRect.center().x(), 0.0);
+        painter.scale(-1.0, 1.0);
+        painter.translate(-destRect.center().x(), 0.0);
+    }
+    painter.drawPixmap(destRect.toRect(), sprite, QRect(0, 0, sprite.width(), sprite.height()));
+    painter.restore();
 }
 }
 
 BattleWidget::BattleWidget(QWidget *parent)
     : QWidget(parent),
       gameManager_(nullptr),
+      lanSessionManager_(nullptr),
       soundManager_(nullptr),
       playerAnimChar_(new AnimatedCharacter(this)),
       enemyAnimChar_(new AnimatedCharacter(this)),
@@ -162,7 +429,10 @@ BattleWidget::BattleWidget(QWidget *parent)
       enemyCooldown_(0.0),
       healCooldown_(0.0),
       battleEndDelay_(0.0),
-    introLockTime_(0.0),
+      introLockTime_(0.0),
+      levelTransitionTime_(0.0),
+      levelTransitionStartPlayerX_(0.0),
+      levelTransitionStartKingX_(0.0),
       playerX_(PLAYER_START_X),
       enemyX_(ENEMY_START_X),
       playerHeight_(0.0),
@@ -177,6 +447,7 @@ BattleWidget::BattleWidget(QWidget *parent)
     arcenProjectileFrame_(0),
     enemyProjectileActive_(false),
     enemyProjectileExploding_(false),
+    enemyProjectileUsesArcenArrow_(false),
     enemyProjectileFacingRight_(false),
     enemyProjectileType_(EnemyType::FIRE_WORM),
     enemyProjectileDamage_(0),
@@ -189,15 +460,27 @@ BattleWidget::BattleWidget(QWidget *parent)
       statusMessage_("Press A/D to move, J to attack, H to heal, ESC to pause"),
       statusDisplayTime_(0.0),
       queuedPlayerAttackState_(AnimationState::ATTACK1),
+      levelTransitionActive_(false),
+      finalRescueTransitionActive_(false),
       playerHpDisplay_(1.0),
       enemyHpDisplay_(1.0),
       arenaGroundBaseColor_(QColor("#5A3A23")),
-        score_(0) {
+      score_(0),
+      duelRemoteScore_(0),
+      lanBridgeActive_(false),
+      lanHostAuthority_(false),
+      lanGuestStateSeen_(false),
+      lastSentLanInputBits_(0),
+      lastRemoteLanInputBits_(0),
+      lanStateTick_(0),
+      enemyHealCooldown_(0.0) {
     // Sound teammate:
     // Most combat SFX will be triggered from this class.
 
     arenaBackgroundPlaceholder_ = loadArenaBackgroundForLevel(1);
     arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+    levelTransitionPortalSpriteSheet_ =
+        QPixmap(resolveAssetPath("assets/objects/magic_portal/Sprites/Isometric_Portal.png"));
     setStyleSheet("QWidget { background-color: #22140D; }");
     setFocusPolicy(Qt::StrongFocus);
     
@@ -221,9 +504,103 @@ double BattleWidget::groundY() const {
 }
 
 void BattleWidget::refreshArenaBackground() {
+    if (gameManager_ && gameManager_->isLanDuel()) {
+        const QString duelBackdropPath = resolveAssetPath("assets/backgrounds/city.png");
+        if (!duelBackdropPath.isEmpty()) {
+            const QPixmap duelBackdrop(duelBackdropPath);
+            if (!duelBackdrop.isNull()) {
+                arenaBackgroundPlaceholder_ = duelBackdrop;
+                arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+                return;
+            }
+        }
+    }
+
+    if (gameManager_ && gameManager_->isDuelMode()) {
+        const QPixmap duelBackdrop = loadExhibitionArenaBackground(gameManager_->getDuelConfig().selectedArena);
+        if (!duelBackdrop.isNull()) {
+            arenaBackgroundPlaceholder_ = duelBackdrop;
+            arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+            return;
+        }
+    }
+
     const int level = gameManager_ ? qMax(1, gameManager_->getCurrentLevel()) : 1;
     arenaBackgroundPlaceholder_ = loadArenaBackgroundForLevel(level);
     arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+}
+
+void BattleWidget::loadBattleProfilePortraits() {
+    playerProfilePortrait_ = QPixmap();
+    enemyProfilePortrait_ = QPixmap();
+
+    if (!gameManager_) {
+        return;
+    }
+
+    const Player *player = gameManager_->getPlayer();
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+
+    if (player) {
+        const QString playerProfile = playerProfilePath(player->getPlayerType());
+        const QString playerImage = playerProfile.isEmpty()
+            ? QString()
+            : QString(playerProfile).replace(QStringLiteral("profile.png"), QStringLiteral("image.png"));
+        playerProfilePortrait_ = loadPortraitPixmap({
+            playerProfile,
+            playerImage,
+            QStringLiteral("assets/story/warrior/image.png")
+        });
+    }
+
+    if (gameManager_->isLanDuel()) {
+        const QString rivalProfile = playerProfilePath(gameManager_->getLanOpponentPlayerType());
+        const QString rivalImage = rivalProfile.isEmpty()
+            ? QString()
+            : QString(rivalProfile).replace(QStringLiteral("profile.png"), QStringLiteral("image.png"));
+        enemyProfilePortrait_ = loadPortraitPixmap({
+            rivalProfile,
+            rivalImage,
+            QStringLiteral("assets/story/warrior/image.png")
+        });
+        return;
+    }
+
+    if (gameManager_->isDuelMode()
+        && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE) {
+        const QString rivalProfile = playerProfilePath(gameManager_->getLanOpponentPlayerType());
+        const QString rivalImage = rivalProfile.isEmpty()
+            ? QString()
+            : QString(rivalProfile).replace(QStringLiteral("profile.png"), QStringLiteral("image.png"));
+        enemyProfilePortrait_ = loadPortraitPixmap({
+            rivalProfile,
+            rivalImage,
+            QStringLiteral("assets/story/warrior/image.png")
+        });
+        return;
+    }
+
+    if (enemy) {
+        const QString enemyProfile = enemyProfilePath(enemy->getEnemyType());
+        const QString enemyImage = enemyProfile.isEmpty()
+            ? QString()
+            : QString(enemyProfile).replace(QStringLiteral("profile.png"), QStringLiteral("image.png"));
+        enemyProfilePortrait_ = loadPortraitPixmap({
+            enemyProfile,
+            enemyImage,
+            QStringLiteral("assets/beasts/werewolf/profile.png"),
+            QStringLiteral("assets/beasts/werewolf/image.png")
+        });
+    }
+}
+
+void BattleWidget::ensureArcenArrowAssetsLoaded() {
+    if (!arcenArrowSprite_.isNull() || !arcenArrowMoveSprite_.isNull()) {
+        return;
+    }
+
+    arcenArrowSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Static.png"));
+    arcenArrowMoveSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Move.png"));
 }
 
 void BattleWidget::drawArenaBackground(QPainter &painter) {
@@ -283,6 +660,10 @@ void BattleWidget::setGameManager(GameManager *gm) {
     gameManager_ = gm;
 }
 
+void BattleWidget::setLanSessionManager(LanSessionManager *manager) {
+    lanSessionManager_ = manager;
+}
+
 void BattleWidget::setSoundManager(SoundManager *sm) {
     // Sound teammate:
     // Use the shared SoundManager here for all combat sounds.
@@ -296,6 +677,7 @@ void BattleWidget::startBattle() {
 
     refreshArenaBackground();
     loadPrototypeAnimations();
+    loadBattleProfilePortraits();
     
     // Reset animation states
     playerAnimChar_->reset();
@@ -304,14 +686,31 @@ void BattleWidget::startBattle() {
     enemyAnimChar_->setAnimationState(AnimationState::IDLE);
     
     battleActive_ = true;
+    levelTransitionActive_ = false;
+    finalRescueTransitionActive_ = false;
     battleEndDelay_ = 0.0;
-    introLockTime_ = 0.9; // Keep fighters at their spawn points briefly.
+    introLockTime_ = BATTLE_COUNTDOWN_DURATION;
+    levelTransitionTime_ = 0.0;
+    levelTransitionStartPlayerX_ = 0.0;
+    levelTransitionStartKingX_ = 0.0;
+    duelRemoteScore_ = 0;
+    lanGuestStateSeen_ = false;
+    lastSentLanInputBits_ = 0;
+    lastRemoteLanInputBits_ = 0;
+    lanStateTick_ = 0;
     playerCooldown_ = 0.0;
-    enemyCooldown_ = 1.0; // Enemy starts with slight delay
+    enemyCooldown_ = BATTLE_COUNTDOWN_DURATION + 0.45;
+    enemyHealCooldown_ = 0.0;
     const double arenaLeft = ARENA_LEFT_X + 70.0;
     const double arenaRight = qMax(arenaLeft + 220.0, double(width()) - ARENA_RIGHT_MARGIN - 70.0);
     playerX_ = arenaLeft;
     enemyX_ = arenaRight;
+    score_ = 0;
+    lanBridgeActive_ = gameManager_->isLanDuel() && lanSessionManager_;
+    lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_->snapshot().localRole == LanRole::HOST;
+    if (lanBridgeActive_) {
+        lanSessionManager_->beginCombatBridge();
+    }
     if (playerAnimChar_) {
         playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
     }
@@ -320,27 +719,545 @@ void BattleWidget::startBattle() {
     }
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     if (enemy) {
-        statusMessage_ = QString("Stage %1/%2 - %3 enters the arena!")
-                             .arg(gameManager_->getCurrentLevel())
-                             .arg(gameManager_->getTotalLevels())
-                             .arg(QString::fromStdString(enemy->getName()));
+        if (gameManager_->isLanDuel()) {
+            statusMessage_ = QString("Arena Link Duel - %1 enters the arena!")
+                                 .arg(QString::fromStdString(enemy->getName()));
+        } else if (gameManager_->isDuelMode()) {
+            statusMessage_ = QString("1v1 Exhibition - %1 enters the arena!")
+                                 .arg(QString::fromStdString(enemy->getName()));
+        } else {
+            statusMessage_ = QString("Stage %1/%2 - %3 enters the arena!")
+                                 .arg(gameManager_->getCurrentLevel())
+                                 .arg(gameManager_->getTotalLevels())
+                                 .arg(QString::fromStdString(enemy->getName()));
+        }
     } else {
         statusMessage_ = "Battle started!";
     }
     statusDisplayTime_ = 2.0;
     enemyProjectileActive_ = false;
     enemyProjectileExploding_ = false;
+    enemyProjectileUsesArcenArrow_ = false;
     enemyProjectileAnimTime_ = 0.0;
     enemyProjectileFrame_ = 0;
     enemyProjectileExplosionTime_ = 0.0;
+
+    const Player *player = gameManager_->getPlayer();
+    levelBattleReport_ = ChronicleBattleReport();
+    if (player) {
+        levelBattleReport_.playerName = QString::fromStdString(player->getName());
+        levelBattleReport_.playerType = playerTypeLabel(player->getPlayerType());
+        levelBattleReport_.playerHp = player->getHealth();
+        levelBattleReport_.playerMaxHp = player->getMaxHealth();
+    }
+    if (enemy) {
+        levelBattleReport_.defeatedEnemyName = QString::fromStdString(enemy->getName());
+        const bool duelPlayerRival = gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE);
+        levelBattleReport_.defeatedEnemyType = duelPlayerRival
+            ? playerTypeLabel(gameManager_->getLanOpponentPlayerType())
+            : enemyTypeLabel(enemy->getEnemyType());
+        levelBattleReport_.enemyMaxHp = enemy->getMaxHealth();
+    }
+    levelBattleReport_.completedLevel = gameManager_->getCurrentLevel();
+    levelBattleReport_.totalLevels = gameManager_->getTotalLevels();
+    levelBattleReport_.currentScore = gameManager_->getCurrentScore();
+    levelBattleReport_.victory = false;
+    levelBattleReport_.campaignComplete = false;
+
+    remoteBattleReport_ = ChronicleBattleReport();
+    if (enemy) {
+        remoteBattleReport_.playerName = QString::fromStdString(enemy->getName());
+        const bool duelPlayerRival = gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE);
+        remoteBattleReport_.playerType = duelPlayerRival
+            ? playerTypeLabel(gameManager_->getLanOpponentPlayerType())
+            : enemyTypeLabel(enemy->getEnemyType());
+        remoteBattleReport_.playerHp = enemy->getHealth();
+        remoteBattleReport_.playerMaxHp = enemy->getMaxHealth();
+    }
+    if (player) {
+        remoteBattleReport_.defeatedEnemyName = QString::fromStdString(player->getName());
+        remoteBattleReport_.defeatedEnemyType = playerTypeLabel(player->getPlayerType());
+        remoteBattleReport_.enemyMaxHp = player->getMaxHealth();
+    }
+    remoteBattleReport_.completedLevel = gameManager_->getCurrentLevel();
+    remoteBattleReport_.totalLevels = gameManager_->getTotalLevels();
+    remoteBattleReport_.currentScore = 0;
+    remoteBattleReport_.victory = false;
+    remoteBattleReport_.campaignComplete = false;
     
     elapsedTimer_.start();
+    levelClock_.start();
     frameTimer_.start();
+}
+
+void BattleWidget::startLevelTransition() {
+    if (!gameManager_ || !gameManager_->getPlayer()) {
+        return;
+    }
+
+    battleActive_ = false;
+    levelTransitionActive_ = true;
+    finalRescueTransitionActive_ = gameManager_->hasCompletedCampaign() && gameManager_->isFinalKingStage();
+    levelTransitionTime_ = 0.0;
+    levelTransitionStartPlayerX_ = playerX_;
+    levelTransitionStartKingX_ = width() * 0.90;
+    battleEndDelay_ = 0.0;
+    introLockTime_ = 0.0;
+    movingLeft_ = false;
+    movingRight_ = false;
+    attackPressed_ = false;
+    healPressed_ = false;
+    arcenProjectileActive_ = false;
+    enemyProjectileActive_ = false;
+    enemyProjectileExploding_ = false;
+    const QString playerName = QString::fromStdString(gameManager_->getPlayer()->getName());
+    statusMessage_ = finalRescueTransitionActive_
+        ? QString("%1: I saved you, King. Let's go back!").arg(playerName)
+        : QStringLiteral("Stage cleared! Enter the portal!");
+    statusDisplayTime_ = finalRescueTransitionActive_ ? 7.6 : LEVEL_TRANSITION_DURATION;
+
+    if (playerAnimChar_) {
+        playerAnimChar_->reset();
+        playerAnimChar_->setFacingLeft(false);
+        playerAnimChar_->setAnimationState(finalRescueTransitionActive_ ? AnimationState::IDLE : AnimationState::RUN);
+    }
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setAnimationState(AnimationState::DEATH);
+    }
+
+    elapsedTimer_.restart();
+    frameTimer_.start();
+    update();
 }
 
 void BattleWidget::stopBattle() {
     battleActive_ = false;
+    levelTransitionActive_ = false;
+    finalRescueTransitionActive_ = false;
+    pausePressed_ = false;
     frameTimer_.stop();
+    if (lanSessionManager_) {
+        lanSessionManager_->endCombatBridge();
+    }
+}
+
+void BattleWidget::pauseBattle() {
+    if (pausePressed_) {
+        return;
+    }
+
+    if (!battleActive_ && !levelTransitionActive_) {
+        return;
+    }
+
+    pausePressed_ = true;
+    movingLeft_ = false;
+    movingRight_ = false;
+    attackPressed_ = false;
+    healPressed_ = false;
+    frameTimer_.stop();
+    update();
+}
+
+void BattleWidget::resumeBattle() {
+    if (!pausePressed_) {
+        return;
+    }
+
+    pausePressed_ = false;
+    if (battleActive_ || levelTransitionActive_) {
+        elapsedTimer_.restart();
+        frameTimer_.start();
+    }
+    setFocus(Qt::OtherFocusReason);
+    update();
+}
+
+bool BattleWidget::isBattleRunning() const {
+    return battleActive_ || levelTransitionActive_;
+}
+
+bool BattleWidget::isPaused() const {
+    return pausePressed_;
+}
+
+quint8 BattleWidget::currentLanInputBits() const {
+    quint8 inputBits = 0;
+    if (movingLeft_) {
+        inputBits |= LanInputMoveLeft;
+    }
+    if (movingRight_) {
+        inputBits |= LanInputMoveRight;
+    }
+    if (attackPressed_) {
+        switch (queuedPlayerAttackState_) {
+            case AnimationState::ATTACK2:
+                inputBits |= LanInputAttack2;
+                break;
+            case AnimationState::ATTACK3:
+                inputBits |= LanInputAttack3;
+                break;
+            case AnimationState::ATTACK1:
+            default:
+                inputBits |= LanInputAttack1;
+                break;
+        }
+    }
+    if (healPressed_) {
+        inputBits |= LanInputHeal;
+    }
+    if (pausePressed_) {
+        inputBits |= LanInputPause;
+    }
+    return inputBits;
+}
+
+void BattleWidget::syncHealthToTarget(Character* character, int targetHp) const {
+    if (!character) {
+        return;
+    }
+
+    const int clampedHp = qBound(0, targetHp, character->getMaxHealth());
+    const int delta = character->getHealth() - clampedHp;
+    if (delta != 0) {
+        character->takeDamage(delta);
+    }
+}
+
+double BattleWidget::mirrorArenaX(double x) const {
+    return width() - x;
+}
+
+void BattleWidget::applyCombatantStats(const LanCombatantStats& localStats,
+                                       const LanCombatantStats& enemyStats,
+                                       bool localVictory,
+                                       double battleDurationSeconds,
+                                       int currentScore) {
+    levelBattleReport_.damageDealt = localStats.damageDealt;
+    levelBattleReport_.damageTaken = localStats.damageTaken;
+    levelBattleReport_.healsUsed = localStats.healsUsed;
+    levelBattleReport_.playerAttacks = localStats.attacks;
+    levelBattleReport_.playerHits = localStats.hits;
+    levelBattleReport_.playerMisses = localStats.misses;
+    levelBattleReport_.projectilesFired = localStats.projectilesFired;
+    levelBattleReport_.projectilesHit = localStats.projectilesHit;
+    levelBattleReport_.enemyHits = enemyStats.hits;
+    levelBattleReport_.battleDurationSeconds = battleDurationSeconds;
+    levelBattleReport_.currentScore = currentScore;
+    levelBattleReport_.victory = localVictory;
+}
+
+void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
+    if (!gameManager_) {
+        return;
+    }
+
+    Player *player = const_cast<Player*>(gameManager_->getPlayer());
+    Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+    if (!player || !enemy) {
+        return;
+    }
+
+    const bool hadGuestState = lanGuestStateSeen_;
+    lanGuestStateSeen_ = true;
+    battleActive_ = state.battleActive;
+    battleEndDelay_ = 0.0;
+    introLockTime_ = state.introLockTime;
+    const double guestTargetX = mirrorArenaX(state.guestX);
+    const double hostTargetX = mirrorArenaX(state.hostX);
+    if (!hadGuestState || std::abs(playerX_ - guestTargetX) > 140.0 || std::abs(enemyX_ - hostTargetX) > 140.0) {
+        playerX_ = guestTargetX;
+        enemyX_ = hostTargetX;
+    } else {
+        playerX_ += (guestTargetX - playerX_) * 0.38;
+        enemyX_ += (hostTargetX - enemyX_) * 0.38;
+    }
+    score_ = state.guestStats.score;
+    duelRemoteScore_ = state.hostStats.score;
+    playerCooldown_ = state.guestAttackCooldown;
+    enemyCooldown_ = state.hostAttackCooldown;
+    healCooldown_ = state.guestHealCooldown;
+    enemyHealCooldown_ = state.hostHealCooldown;
+
+    syncHealthToTarget(player, state.guestHp);
+    syncHealthToTarget(enemy, state.hostHp);
+
+    if (playerAnimChar_) {
+        playerAnimChar_->setFacingLeft(!state.guestFacingLeft);
+        playerAnimChar_->setAnimationState(state.guestAnimation);
+    }
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setFacingLeft(!state.hostFacingLeft);
+        enemyAnimChar_->setAnimationState(state.hostAnimation);
+    }
+
+    const bool localIsArcen = gameManager_->getSelectedPlayerType() == PlayerType::ARCEN;
+    arcenProjectileActive_ = localIsArcen && state.guestProjectileActive;
+    arcenProjectileFacingRight_ = !state.guestProjectileFacingRight;
+    const double guestProjectileTargetX = mirrorArenaX(state.guestProjectileX);
+    if (!hadGuestState || !arcenProjectileActive_) {
+        arcenProjectileX_ = guestProjectileTargetX;
+        arcenProjectileY_ = state.guestProjectileY;
+    } else {
+        arcenProjectileX_ += (guestProjectileTargetX - arcenProjectileX_) * 0.52;
+        arcenProjectileY_ += (state.guestProjectileY - arcenProjectileY_) * 0.52;
+    }
+    arcenProjectileFrame_ = state.guestProjectileFrame;
+
+    enemyProjectileActive_ = state.hostProjectileActive;
+    enemyProjectileUsesArcenArrow_ = gameManager_->getLanOpponentPlayerType() == PlayerType::ARCEN;
+    enemyProjectileExploding_ = false;
+    enemyProjectileFacingRight_ = !state.hostProjectileFacingRight;
+    enemyProjectileType_ = EnemyType::FIRE_WORM;
+    const double hostProjectileTargetX = mirrorArenaX(state.hostProjectileX);
+    if (!hadGuestState || !enemyProjectileActive_) {
+        enemyProjectileX_ = hostProjectileTargetX;
+        enemyProjectileY_ = state.hostProjectileY;
+    } else {
+        enemyProjectileX_ += (hostProjectileTargetX - enemyProjectileX_) * 0.52;
+        enemyProjectileY_ += (state.hostProjectileY - enemyProjectileY_) * 0.52;
+    }
+    enemyProjectileFrame_ = state.hostProjectileFrame;
+
+    if (!state.statusMessage.trimmed().isEmpty()) {
+        statusMessage_ = state.statusMessage;
+        statusDisplayTime_ = qMax(statusDisplayTime_, state.statusSeconds);
+    } else {
+        statusDisplayTime_ = qMax(0.0, statusDisplayTime_);
+    }
+
+    applyCombatantStats(state.guestStats,
+                        state.hostStats,
+                        state.winner == LanCombatWinner::GUEST,
+                        state.battleDurationSeconds,
+                        state.guestStats.score);
+}
+
+void BattleWidget::pushHostCombatState(bool finished) {
+    if (!lanBridgeActive_ || !lanHostAuthority_ || !lanSessionManager_ || !gameManager_) {
+        return;
+    }
+
+    const Player *player = gameManager_->getPlayer();
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    if (!player || !enemy) {
+        return;
+    }
+
+    LanCombatState state;
+    state.tick = ++lanStateTick_;
+    state.battleActive = !finished && battleActive_;
+    state.matchFinished = finished;
+    state.winner = finished
+        ? (player->isAlive() ? LanCombatWinner::HOST : LanCombatWinner::GUEST)
+        : (!player->isAlive() ? LanCombatWinner::GUEST
+           : !enemy->isAlive() ? LanCombatWinner::HOST
+                               : LanCombatWinner::NONE);
+    state.battleDurationSeconds = levelClock_.isValid() ? levelClock_.elapsed() / 1000.0 : 0.0;
+    state.introLockTime = introLockTime_;
+    state.hostX = playerX_;
+    state.guestX = enemyX_;
+    state.hostHp = player->getHealth();
+    state.guestHp = enemy->getHealth();
+    state.hostFacingLeft = playerAnimChar_ ? playerAnimChar_->isFacingLeft() : (enemyX_ < playerX_);
+    state.guestFacingLeft = enemyAnimChar_ ? enemyAnimChar_->isFacingLeft() : (playerX_ < enemyX_);
+    state.hostAnimation = playerAnimChar_ ? playerAnimChar_->getCurrentState() : AnimationState::IDLE;
+    state.guestAnimation = enemyAnimChar_ ? enemyAnimChar_->getCurrentState() : AnimationState::IDLE;
+    state.hostAttackCooldown = playerCooldown_;
+    state.guestAttackCooldown = enemyCooldown_;
+    state.hostHealCooldown = healCooldown_;
+    state.guestHealCooldown = enemyHealCooldown_;
+    state.hostProjectileActive = arcenProjectileActive_;
+    state.hostProjectileFacingRight = arcenProjectileFacingRight_;
+    state.hostProjectileX = arcenProjectileX_;
+    state.hostProjectileY = arcenProjectileY_;
+    state.hostProjectileFrame = arcenProjectileFrame_;
+    state.guestProjectileActive = enemyProjectileActive_;
+    state.guestProjectileExploding = enemyProjectileExploding_;
+    state.guestProjectileFacingRight = enemyProjectileFacingRight_;
+    state.guestProjectileType = enemyProjectileType_;
+    state.guestProjectileX = enemyProjectileX_;
+    state.guestProjectileY = enemyProjectileY_;
+    state.guestProjectileFrame = enemyProjectileFrame_;
+    state.statusMessage = statusDisplayTime_ > 0.0 ? statusMessage_ : QString();
+    state.statusSeconds = statusDisplayTime_;
+    state.hostStats.score = score_;
+    state.hostStats.damageDealt = levelBattleReport_.damageDealt;
+    state.hostStats.damageTaken = levelBattleReport_.damageTaken;
+    state.hostStats.healsUsed = levelBattleReport_.healsUsed;
+    state.hostStats.attacks = levelBattleReport_.playerAttacks;
+    state.hostStats.hits = levelBattleReport_.playerHits;
+    state.hostStats.misses = levelBattleReport_.playerMisses;
+    state.hostStats.projectilesFired = levelBattleReport_.projectilesFired;
+    state.hostStats.projectilesHit = levelBattleReport_.projectilesHit;
+    state.guestStats.score = duelRemoteScore_;
+    state.guestStats.damageDealt = remoteBattleReport_.damageDealt;
+    state.guestStats.damageTaken = remoteBattleReport_.damageTaken;
+    state.guestStats.healsUsed = remoteBattleReport_.healsUsed;
+    state.guestStats.attacks = remoteBattleReport_.playerAttacks;
+    state.guestStats.hits = remoteBattleReport_.playerHits;
+    state.guestStats.misses = remoteBattleReport_.playerMisses;
+    state.guestStats.projectilesFired = remoteBattleReport_.projectilesFired;
+    state.guestStats.projectilesHit = remoteBattleReport_.projectilesHit;
+    lanSessionManager_->publishCombatState(state);
+}
+
+void BattleWidget::updateRemoteLanMovement(double dt, quint8 remoteInputBits) {
+    const bool moveWorldLeft = (remoteInputBits & LanInputMoveRight) != 0;
+    const bool moveWorldRight = (remoteInputBits & LanInputMoveLeft) != 0;
+    const double moveAmount = MOVE_SPEED * dt;
+
+    if (moveWorldLeft && !moveWorldRight) {
+        enemyX_ = qMax(ARENA_LEFT_X + 10.0, enemyX_ - moveAmount);
+    } else if (moveWorldRight && !moveWorldLeft) {
+        enemyX_ = qMin(double(width()) - ARENA_RIGHT_MARGIN - 10.0, enemyX_ + moveAmount);
+    }
+
+    if (enemyAnimChar_) {
+        const AnimationState st = enemyAnimChar_->getCurrentState();
+        const bool locked = (st == AnimationState::ATTACK1 || st == AnimationState::ATTACK2 ||
+                             st == AnimationState::ATTACK3 || st == AnimationState::STRONG_ATTACK ||
+                             st == AnimationState::HURT || st == AnimationState::DEATH);
+        if (!locked) {
+            enemyAnimChar_->setAnimationState((moveWorldLeft || moveWorldRight)
+                ? AnimationState::RUN
+                : AnimationState::IDLE);
+        }
+    }
+}
+
+void BattleWidget::tryRemoteLanHeal() {
+    if (enemyHealCooldown_ > 0.0 || !gameManager_) {
+        return;
+    }
+
+    Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+    if (!enemy) {
+        return;
+    }
+
+    enemy->takeDamage(-25);
+    enemyHealCooldown_ = 5.0;
+    ++remoteBattleReport_.healsUsed;
+    remoteBattleReport_.playerHp = enemy->getHealth();
+    statusMessage_ = QString("%1 uses heal.").arg(QString::fromStdString(enemy->getName()));
+    statusDisplayTime_ = 1.2;
+}
+
+void BattleWidget::tryRemoteLanAttack(AnimationState attackState) {
+    if (enemyCooldown_ > 0.0 || !gameManager_) {
+        return;
+    }
+
+    Player *player = const_cast<Player*>(gameManager_->getPlayer());
+    Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+    if (!player || !enemy) {
+        return;
+    }
+
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setAnimationState(attackState);
+    }
+
+    ++remoteBattleReport_.playerAttacks;
+    const PlayerType remoteType = gameManager_->getLanOpponentPlayerType();
+    if (remoteType == PlayerType::ARCEN) {
+        int damage = enemy->calculateDamage();
+        if (attackState == AnimationState::ATTACK2) {
+            damage = static_cast<int>(damage * 1.2);
+        } else if (attackState == AnimationState::ATTACK3) {
+            damage = static_cast<int>(damage * 1.35);
+        }
+
+        if (!enemyProjectileActive_) {
+            spawnEnemyProjectile(enemy->getEnemyType(), damage);
+            ++remoteBattleReport_.projectilesFired;
+            statusMessage_ = QString("%1 fires a ranged attack!").arg(QString::fromStdString(enemy->getName()));
+            statusDisplayTime_ = 0.9;
+        } else {
+            ++remoteBattleReport_.playerMisses;
+            statusMessage_ = QString("%1's projectile lane is still occupied.").arg(QString::fromStdString(enemy->getName()));
+            statusDisplayTime_ = 0.9;
+        }
+
+        enemyCooldown_ = PLAYER_ATTACK_COOLDOWN;
+        return;
+    }
+
+    const double distToPlayer = std::abs(playerX_ - enemyX_);
+    int damage = enemy->calculateDamage();
+    if (attackState == AnimationState::ATTACK2) {
+        damage = static_cast<int>(damage * 1.2);
+    } else if (attackState == AnimationState::ATTACK3) {
+        damage = static_cast<int>(damage * 1.35);
+    }
+
+    if (distToPlayer <= ATTACK_RANGE) {
+        player->takeDamage(damage);
+        duelRemoteScore_ += damage * 10;
+        remoteBattleReport_.damageDealt += qMax(0, damage);
+        ++remoteBattleReport_.playerHits;
+        levelBattleReport_.damageTaken += qMax(0, damage);
+        ++levelBattleReport_.enemyHits;
+
+        if (playerAnimChar_) {
+            playerAnimChar_->takeDamage();
+        }
+
+        statusMessage_ = QString("%1 lands %2 damage!").arg(QString::fromStdString(enemy->getName())).arg(damage);
+        statusDisplayTime_ = 1.2;
+
+        if (!player->isAlive()) {
+            statusMessage_ = "Defeat! You were defeated!";
+            statusDisplayTime_ = 3.0;
+            if (playerAnimChar_) {
+                playerAnimChar_->kill();
+            }
+        }
+    } else {
+        ++remoteBattleReport_.playerMisses;
+        statusMessage_ = QString("%1 misses the strike.").arg(QString::fromStdString(enemy->getName()));
+        statusDisplayTime_ = 0.9;
+    }
+
+    enemyCooldown_ = PLAYER_ATTACK_COOLDOWN;
+}
+
+ChronicleBattleReport BattleWidget::levelBattleReport() const {
+    ChronicleBattleReport report = levelBattleReport_;
+    const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
+    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+
+    if (player) {
+        report.playerHp = player->getHealth();
+        report.playerMaxHp = player->getMaxHealth();
+        report.playerName = QString::fromStdString(player->getName());
+        report.playerType = playerTypeLabel(player->getPlayerType());
+    }
+    if (enemy) {
+        report.defeatedEnemyName = QString::fromStdString(enemy->getName());
+        const bool duelPlayerRival = gameManager_
+            && (gameManager_->isLanDuel()
+                || (gameManager_->isDuelMode()
+                    && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE));
+        report.defeatedEnemyType = duelPlayerRival
+            ? playerTypeLabel(gameManager_->getLanOpponentPlayerType())
+            : enemyTypeLabel(enemy->getEnemyType());
+        report.enemyMaxHp = enemy->getMaxHealth();
+    }
+    if (gameManager_) {
+        report.completedLevel = gameManager_->getCurrentLevel();
+        report.totalLevels = gameManager_->getTotalLevels();
+        report.currentScore = gameManager_->isLanDuel() ? score_ : gameManager_->getCurrentScore();
+        report.victory = player && player->isAlive() && enemy && !enemy->isAlive();
+        report.campaignComplete = gameManager_->hasCompletedCampaign();
+    }
+    report.battleDurationSeconds = levelClock_.isValid() ? levelClock_.elapsed() / 1000.0 : report.battleDurationSeconds;
+    return report;
 }
 
 void BattleWidget::paintEvent(QPaintEvent *event) {
@@ -360,18 +1277,30 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
     const Player *player = gameManager_->getPlayer();
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     
-// Draw fighters with animation support - Draw enemy first so player is on top
-    drawFighterWithAnimation(painter, enemyX_, floorY, enemy->getHealth(), enemy->getMaxHealth(),
-                             QString::fromStdString(enemy->getName()), enemyAnimChar_, false);
-    drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
-                             QString::fromStdString(player->getName()), playerAnimChar_, true);
+    if (levelTransitionActive_) {
+        drawLevelTransitionPortal(painter);
+        if (finalRescueTransitionActive_) {
+            drawFinalRescueTransition(painter);
+        }
+        drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
+                                 QString::fromStdString(player->getName()), playerAnimChar_, true);
+    } else {
+        // Draw fighters with animation support - Draw enemy first so player is on top
+        drawFinalKingStageScene(painter);
+        drawFighterWithAnimation(painter, enemyX_, floorY, enemy->getHealth(), enemy->getMaxHealth(),
+                                 QString::fromStdString(enemy->getName()), enemyAnimChar_, false);
+        drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
+                                 QString::fromStdString(player->getName()), playerAnimChar_, true);
 
-    drawArcenProjectile(painter);
-    drawEnemyProjectile(painter);
+        drawArcenProjectile(painter);
+        drawEnemyProjectile(painter);
+    }
     
     // Draw HUD and status
     drawHUD(painter);
     drawStatus(painter);
+    drawFinalRescueDialogue(painter);
+    drawCountdownOverlay(painter);
 }
 
 void BattleWidget::drawFighter(QPainter &painter, double x, double y, int hp, int maxHp,
@@ -428,6 +1357,10 @@ void BattleWidget::drawHealthBar(QPainter &painter, double x, double y, int hp, 
 }
 
 void BattleWidget::drawStatus(QPainter &painter) {
+    if (finalRescueTransitionActive_) {
+        return;
+    }
+
     QFont font = painter.font();
     font.setPointSize(11);
     font.setBold(true);
@@ -457,7 +1390,243 @@ void BattleWidget::drawStatus(QPainter &painter) {
     painter.setFont(font);
     painter.setPen(QColor("#D4AF37"));
     painter.drawText(50, height() - 80, width() - 100, 20, Qt::AlignCenter,
-                     "A/D: Move  |  J/K/L: Attack 1/2/3  |  W: Jump  |  H: Heal  |  ESC: Pause");
+                     gameManager_ && gameManager_->isLanDuel()
+                         ? "Arena Link Live Duel  |  A/D: Move  |  J/K/L: Attack  |  H: Heal  |  ESC: Pause"
+                         : "A/D: Move  |  J/K/L: Attack 1/2/3  |  W: Jump  |  H: Heal  |  ESC: Pause");
+}
+
+void BattleWidget::drawFinalRescueDialogue(QPainter &painter) {
+    if (!finalRescueTransitionActive_ || !gameManager_ || !gameManager_->getPlayer()) {
+        return;
+    }
+
+    const double w = width();
+    const double h = height();
+    const double runStart = 4.4;
+    const double transitionDuration = 7.6;
+    const double runProgress = qBound(0.0, (levelTransitionTime_ - runStart) / qMax(0.1, transitionDuration - runStart), 1.0);
+    const double kingX = levelTransitionStartKingX_ + (w * 0.99 - levelTransitionStartKingX_) * runProgress;
+    const QString playerName = QString::fromStdString(gameManager_->getPlayer()->getName());
+
+    auto drawSpeechBubble = [&](const QRectF& requestedRect, const QString& speaker, const QString& line, bool tailLeft) {
+        const double bubbleWidth = requestedRect.width();
+        const QRectF bubbleRect(qBound(24.0, requestedRect.left(), w - bubbleWidth - 24.0),
+                                requestedRect.top(),
+                                bubbleWidth,
+                                requestedRect.height());
+
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(QColor(235, 204, 132, 190));
+        painter.setBrush(QColor(17, 11, 9, 218));
+        painter.drawRoundedRect(bubbleRect, 14.0, 14.0);
+
+        QPainterPath tail;
+        const double tailX = tailLeft ? bubbleRect.left() + bubbleRect.width() * 0.24
+                                      : bubbleRect.right() - bubbleRect.width() * 0.24;
+        tail.moveTo(tailX - 12.0, bubbleRect.bottom() - 1.0);
+        tail.lineTo(tailX + 12.0, bubbleRect.bottom() - 1.0);
+        tail.lineTo(tailLeft ? tailX - 28.0 : tailX + 28.0, bubbleRect.bottom() + 22.0);
+        tail.closeSubpath();
+        painter.drawPath(tail);
+
+        QFont speakerFont("Segoe UI", qMax(10, width() / 116), QFont::Black);
+        painter.setFont(speakerFont);
+        painter.setPen(QColor("#F4D895"));
+        const QRectF speakerRect = bubbleRect.adjusted(14.0, 8.0, -14.0, -bubbleRect.height() * 0.58);
+        painter.drawText(speakerRect, Qt::AlignLeft | Qt::AlignVCenter, speaker);
+
+        QFont speechFont("Segoe UI", qMax(11, width() / 104), QFont::DemiBold);
+        painter.setFont(speechFont);
+        painter.setPen(QColor("#FFF3CF"));
+        painter.drawText(bubbleRect.adjusted(14.0, bubbleRect.height() * 0.36, -14.0, -10.0),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
+                         line);
+        painter.restore();
+    };
+
+    if (levelTransitionTime_ < 2.25) {
+        drawSpeechBubble(QRectF(playerX_ - w * 0.08, h * 0.14, w * 0.27, h * 0.105),
+                         playerName,
+                         QStringLiteral("I saved you, King. Let's go back!"),
+                         true);
+        return;
+    }
+
+    if (levelTransitionTime_ < runStart) {
+        drawSpeechBubble(QRectF(kingX - w * 0.25, h * 0.14, w * 0.27, h * 0.105),
+                         QStringLiteral("King"),
+                         QStringLiteral("Thank you, brave gladiator. Lead the way!"),
+                         false);
+        return;
+    }
+
+    const QRectF captionCard(w * 0.16, h * 0.885, w * 0.68, h * 0.058);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QColor(212, 160, 74, 145));
+    painter.setBrush(QColor(19, 12, 10, 188));
+    painter.drawRoundedRect(captionCard, 12.0, 12.0);
+    painter.setPen(QColor("#FFF1CC"));
+    QFont bodyFont("Segoe UI", qMax(11, width() / 95), QFont::DemiBold);
+    painter.setFont(bodyFont);
+    painter.drawText(captionCard.toRect(),
+                     Qt::AlignCenter,
+                     QStringLiteral("The king and gladiator enter the portal together."));
+    painter.restore();
+}
+
+void BattleWidget::drawCountdownOverlay(QPainter &painter) {
+    if (!battleActive_ || levelTransitionActive_ || introLockTime_ <= 0.0) {
+        return;
+    }
+
+    const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
+    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+    if (!player || !enemy) {
+        return;
+    }
+
+    const double remaining = qBound(0.0, introLockTime_, BATTLE_COUNTDOWN_DURATION);
+    QString countdownText;
+    if (remaining > 2.25) {
+        countdownText = "3";
+    } else if (remaining > 1.35) {
+        countdownText = "2";
+    } else if (remaining > 0.45) {
+        countdownText = "1";
+    } else {
+        countdownText = "FIGHT!";
+    }
+
+    const bool isFight = countdownText == "FIGHT!";
+    const double segment = isFight ? qBound(0.0, (0.45 - remaining) / 0.45, 1.0)
+                                   : std::fmod(BATTLE_COUNTDOWN_DURATION - remaining, 0.9) / 0.9;
+    const int titleSize = isFight
+        ? qMax(48, static_cast<int>(height() * (0.084 + segment * 0.012)))
+        : qMax(86, static_cast<int>(height() * (0.13 + (1.0 - segment) * 0.018)));
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    painter.fillRect(rect(), QColor(9, 5, 3, 124));
+
+    const QString playerName = QString::fromStdString(player->getName()).toUpper();
+    const QString enemyName = QString::fromStdString(enemy->getName()).toUpper();
+    const bool isLanDuel = gameManager_ && gameManager_->isLanDuel();
+    const qreal cardLift = isFight ? 0.0 : (1.0 - qBound(0.0, remaining / BATTLE_COUNTDOWN_DURATION, 1.0)) * 10.0;
+    const QRectF leftZone(width() * 0.10, height() * 0.3 + cardLift, width() * 0.27, height() * 0.34);
+    const QRectF rightZone(width() * 0.63, height() * 0.3 + cardLift, width() * 0.27, height() * 0.34);
+
+    auto fittedFaceoffFont = [&](const QString& text, qreal maxWidth, int maxPointSize, int minPointSize) {
+        QFont font("Showcard Gothic", maxPointSize);
+        if (font.family() != "Showcard Gothic") {
+            font = painter.font();
+            font.setBold(true);
+        }
+
+        for (int pointSize = maxPointSize; pointSize >= minPointSize; --pointSize) {
+            font.setPointSize(pointSize);
+            QFontMetricsF metrics(font);
+            if (metrics.horizontalAdvance(text) <= maxWidth) {
+                break;
+            }
+        }
+        return font;
+    };
+
+    auto drawIntroPortrait = [&](const QRectF& zoneRect,
+                                 const QPixmap& portrait,
+                                 const QColor& accentColor,
+                                 const QString& fighterName) {
+        painter.save();
+        const qreal portraitSize = qMin<qreal>(224.0, qMax<qreal>(164.0, height() * 0.196));
+        const QRectF portraitRect(zoneRect.center().x() - portraitSize * 0.5,
+                                  zoneRect.y() + 4.0,
+                                  portraitSize,
+                                  portraitSize);
+        drawPortraitBadge(painter, portraitRect, portrait, accentColor, fighterName.left(2));
+
+        const QRectF nameRect(zoneRect.center().x() - zoneRect.width() * 0.46,
+                              portraitRect.bottom() + 18.0,
+                              zoneRect.width() * 0.92,
+                              zoneRect.height() - portraitRect.height() - 18.0);
+        QFont nameFont = fittedFaceoffFont(fighterName,
+                                           nameRect.width(),
+                                           qMax(22, static_cast<int>(height() * 0.040)),
+                                           qMax(14, static_cast<int>(height() * 0.023)));
+        painter.setFont(nameFont);
+        painter.setPen(QColor(0, 0, 0, 165));
+        painter.drawText(nameRect.translated(0.0, 3.0),
+                         Qt::AlignHCenter | Qt::AlignTop,
+                         fighterName);
+        painter.setPen(QColor("#FFF0C8"));
+        painter.drawText(nameRect,
+                         Qt::AlignHCenter | Qt::AlignTop,
+                         fighterName);
+        painter.restore();
+    };
+
+    drawIntroPortrait(leftZone,
+                      playerProfilePortrait_,
+                      QColor("#33D17A"),
+                      playerName);
+    drawIntroPortrait(rightZone,
+                      enemyProfilePortrait_,
+                      QColor("#F97316"),
+                      enemyName);
+
+    const QRectF plateRect(width() * 0.33, height() * 0.33, width() * 0.34, height() * 0.24);
+    QPainterPath plate;
+    plate.addRoundedRect(plateRect, 28, 28);
+
+    QLinearGradient plateGradient(plateRect.topLeft(), plateRect.bottomRight());
+    plateGradient.setColorAt(0.0, QColor(38, 22, 12, 224));
+    plateGradient.setColorAt(0.48, QColor(74, 39, 18, 232));
+    plateGradient.setColorAt(1.0, QColor(114, 28, 18, 225));
+    painter.fillPath(plate, plateGradient);
+    painter.setPen(QPen(QColor(218, 167, 48, 215), 3));
+    painter.drawPath(plate);
+
+    QFont labelFont("Segoe UI", qMax(12, static_cast<int>(height() * 0.022)), QFont::Black);
+    labelFont.setLetterSpacing(QFont::AbsoluteSpacing, 4);
+    painter.setFont(labelFont);
+    painter.setPen(QColor("#F6D47A"));
+    painter.drawText(plateRect.adjusted(0, 18, 0, 0), Qt::AlignHCenter | Qt::AlignTop, "GET READY");
+
+    QFont countdownFont("Segoe UI", titleSize, QFont::Black);
+    countdownFont.setLetterSpacing(QFont::AbsoluteSpacing, isFight ? 7 : 1);
+    painter.setFont(countdownFont);
+    const QRectF textRect = plateRect.adjusted(10, 34, -10, -34);
+
+    painter.setPen(QColor(0, 0, 0, 185));
+    painter.drawText(textRect.translated(5, 7), Qt::AlignCenter, countdownText);
+
+    QLinearGradient textGradient(textRect.topLeft(), textRect.bottomLeft());
+    textGradient.setColorAt(0.0, QColor("#FFF0A6"));
+    textGradient.setColorAt(0.55, isFight ? QColor("#FF3B25") : QColor("#FFD22E"));
+    textGradient.setColorAt(1.0, isFight ? QColor("#96130F") : QColor("#A85A12"));
+    painter.setPen(QPen(QBrush(textGradient), 2));
+    painter.drawText(textRect, Qt::AlignCenter, countdownText);
+
+    QFont hintFont("Segoe UI", qMax(10, static_cast<int>(height() * 0.019)), QFont::DemiBold);
+    painter.setFont(hintFont);
+    painter.setPen(QColor(255, 230, 160, 210));
+    painter.drawText(plateRect.adjusted(20, 0, -20, -18),
+                     Qt::AlignHCenter | Qt::AlignBottom,
+                     isFight
+                         ? (isLanDuel
+                                ? "Fight with honor."
+                                : (gameManager_ && gameManager_->isDuelMode()
+                                       ? "Settle the duel."
+                                       : "Defend the king."))
+                         : (isLanDuel
+                                ? "Profile locked. Arena syncing."
+                                : (gameManager_ && gameManager_->isDuelMode()
+                                       ? "Matchup locked. Arena chosen."
+                                       : "Prepare your stance.")));
+
+    painter.restore();
 }
 
 void BattleWidget::keyPressEvent(QKeyEvent *event) {
@@ -529,6 +1698,12 @@ void BattleWidget::keyPressEvent(QKeyEvent *event) {
         default:
             QWidget::keyPressEvent(event);
     }
+
+    if (battleActive_ && lanBridgeActive_ && !lanHostAuthority_ && lanSessionManager_) {
+        const quint8 inputBits = currentLanInputBits();
+        lastSentLanInputBits_ = inputBits;
+        lanSessionManager_->sendCombatInput(inputBits);
+    }
 }
 
 void BattleWidget::keyReleaseEvent(QKeyEvent *event) {
@@ -555,17 +1730,98 @@ void BattleWidget::keyReleaseEvent(QKeyEvent *event) {
         default:
             QWidget::keyReleaseEvent(event);
     }
+
+    if (battleActive_ && lanBridgeActive_ && !lanHostAuthority_ && lanSessionManager_) {
+        const quint8 inputBits = currentLanInputBits();
+        lastSentLanInputBits_ = inputBits;
+        lanSessionManager_->sendCombatInput(inputBits);
+    }
 }
 
 void BattleWidget::advanceFrame() {
-    if (!gameManager_ || !battleActive_) return;
-    
+    if (!gameManager_) return;
+
     const double dt = qMin(0.033, elapsedTimer_.restart() / 1000.0);
-    
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
-    
+
     if (!player || !enemy) return;
+
+    if (levelTransitionActive_) {
+        levelTransitionTime_ += dt;
+        statusDisplayTime_ = qMax(0.0, statusDisplayTime_ - dt);
+
+        const double runEndX = width() * 1.01;
+        const double finalDialogueTime = 4.4;
+        const double finalTransitionDuration = 7.6;
+        const double transitionDuration = finalRescueTransitionActive_ ? finalTransitionDuration : LEVEL_TRANSITION_DURATION;
+        const double progress = finalRescueTransitionActive_
+            ? qBound(0.0, (levelTransitionTime_ - finalDialogueTime) / qMax(0.1, transitionDuration - finalDialogueTime), 1.0)
+            : qBound(0.0, levelTransitionTime_ / qMax(0.1, LEVEL_TRANSITION_DURATION), 1.0);
+        playerX_ = levelTransitionStartPlayerX_ + (runEndX - levelTransitionStartPlayerX_) * progress;
+
+        if (playerAnimChar_) {
+            playerAnimChar_->setFacingLeft(false);
+            playerAnimChar_->setAnimationState(finalRescueTransitionActive_ && levelTransitionTime_ < finalDialogueTime
+                                                   ? AnimationState::IDLE
+                                                   : AnimationState::RUN);
+        }
+
+        if (finalRescueTransitionActive_) {
+            const QString playerName = QString::fromStdString(player->getName());
+            if (levelTransitionTime_ < 2.25) {
+                statusMessage_ = QString("%1: I saved you, King. Let's go back!").arg(playerName);
+            } else if (levelTransitionTime_ < finalDialogueTime) {
+                statusMessage_ = "King: Thank you, brave gladiator. Lead the way!";
+            } else {
+                statusMessage_ = "The king and gladiator enter the portal together.";
+            }
+        }
+
+        update();
+
+        if (levelTransitionTime_ >= transitionDuration) {
+            levelTransitionActive_ = false;
+            finalRescueTransitionActive_ = false;
+            frameTimer_.stop();
+            emit levelTransitionFinished();
+        }
+        return;
+    }
+
+    if (!battleActive_) return;
+
+    if (lanBridgeActive_ && !lanHostAuthority_) {
+        if (lanSessionManager_) {
+            const quint8 inputBits = currentLanInputBits();
+            lastSentLanInputBits_ = inputBits;
+            lanSessionManager_->sendCombatInput(inputBits);
+
+            const LanCombatState state = lanSessionManager_->latestCombatState();
+            if (state.tick > 0) {
+                applyGuestCombatState(state);
+            }
+        }
+
+        const Player *p = gameManager_->getPlayer();
+        const Enemy *e = gameManager_->getCurrentEnemy();
+        if (p) {
+            const double target = p->getMaxHealth() > 0 ? static_cast<double>(p->getHealth()) / p->getMaxHealth() : 0.0;
+            playerHpDisplay_ += (target - playerHpDisplay_) * qMin(1.0, 5.0 * dt);
+        }
+        if (e) {
+            const double target = e->getMaxHealth() > 0 ? static_cast<double>(e->getHealth()) / e->getMaxHealth() : 0.0;
+            enemyHpDisplay_ += (target - enemyHpDisplay_) * qMin(1.0, 5.0 * dt);
+        }
+
+        statusDisplayTime_ = qMax(0.0, statusDisplayTime_ - dt);
+        update();
+
+        if (lanGuestStateSeen_ && !battleActive_) {
+            emit battleFinished();
+        }
+        return;
+    }
     
     // Let death animations play before leaving battle.
     if (!player->isAlive() || !enemy->isAlive()) {
@@ -581,9 +1837,37 @@ void BattleWidget::advanceFrame() {
 
         battleEndDelay_ -= dt;
         if (battleEndDelay_ <= 0.0) {
+            if (player->isAlive() && !enemy->isAlive() && gameManager_->advanceFinalGuardianWave()) {
+                Enemy *nextGuardian = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+                if (nextGuardian) {
+                    loadEnemyAnimations(nextGuardian->getEnemyType());
+                    loadBattleProfilePortraits();
+                    enemyX_ = qMax(ARENA_LEFT_X + 260.0, double(width()) - ARENA_RIGHT_MARGIN - 110.0);
+                    enemyCooldown_ = 0.85;
+                    introLockTime_ = 0.0;
+                    battleEndDelay_ = 0.0;
+                    enemyProjectileActive_ = false;
+                    enemyProjectileExploding_ = false;
+                    enemyProjectileAnimTime_ = 0.0;
+                    enemyProjectileFrame_ = 0;
+                    enemyProjectileExplosionTime_ = 0.0;
+                    statusMessage_ = QString("%1 lunges forward to guard the king!")
+                                         .arg(QString::fromStdString(nextGuardian->getName()));
+                    statusDisplayTime_ = 2.0;
+                    if (enemyAnimChar_) {
+                        enemyAnimChar_->reset();
+                        enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+                        enemyAnimChar_->setAnimationState(AnimationState::RUN);
+                    }
+                    update();
+                    return;
+                }
+            }
             battleActive_ = false;
+            pushHostCombatState(true);
             emit battleFinished();
         }
+        pushHostCombatState(false);
         update();
         return;
     }
@@ -592,6 +1876,7 @@ void BattleWidget::advanceFrame() {
     playerCooldown_ = qMax(0.0, playerCooldown_ - dt);
     enemyCooldown_ = qMax(0.0, enemyCooldown_ - dt);
     healCooldown_ = qMax(0.0, healCooldown_ - dt);
+    enemyHealCooldown_ = qMax(0.0, enemyHealCooldown_ - dt);
     statusDisplayTime_ = qMax(0.0, statusDisplayTime_ - dt);
     introLockTime_ = qMax(0.0, introLockTime_ - dt);
     
@@ -607,11 +1892,30 @@ void BattleWidget::advanceFrame() {
         enemyHpDisplay_ += (target - enemyHpDisplay_) * qMin(1.0, 5.0 * dt);
     }
 
+    if (introLockTime_ > 0.0) {
+        attackPressed_ = false;
+        healPressed_ = false;
+        if (playerAnimChar_) {
+            playerAnimChar_->setAnimationState(AnimationState::IDLE);
+            playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
+        }
+        if (enemyAnimChar_) {
+            enemyAnimChar_->setAnimationState(AnimationState::IDLE);
+            enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+        }
+        pushHostCombatState(false);
+        update();
+        return;
+    }
+
     // Player movement
     updatePlayerMovement(dt);
-    
-    // Enemy AI (delay movement briefly so characters don't immediately collapse to center)
-    if (introLockTime_ <= 0.0) {
+
+    quint8 remoteInputBits = 0;
+    if (lanBridgeActive_ && lanHostAuthority_ && lanSessionManager_) {
+        remoteInputBits = lanSessionManager_->latestRemoteCombatInput().inputBits;
+        updateRemoteLanMovement(dt, remoteInputBits);
+    } else {
         updateEnemyAI(dt);
     }
 
@@ -631,16 +1935,84 @@ void BattleWidget::advanceFrame() {
         tryPlayerAttack(dt);
         attackPressed_ = false; // One attack per press
     }
-    
-    if (enemyCooldown_ <= 0.0) {
+
+    if (lanBridgeActive_ && lanHostAuthority_) {
+        const quint8 pressedThisFrame = static_cast<quint8>(remoteInputBits & ~lastRemoteLanInputBits_);
+        if ((pressedThisFrame & LanInputHeal) != 0) {
+            tryRemoteLanHeal();
+        }
+        if ((pressedThisFrame & LanInputAttack1) != 0) {
+            tryRemoteLanAttack(AnimationState::ATTACK1);
+        } else if ((pressedThisFrame & LanInputAttack2) != 0) {
+            tryRemoteLanAttack(AnimationState::ATTACK2);
+        } else if ((pressedThisFrame & LanInputAttack3) != 0) {
+            tryRemoteLanAttack(AnimationState::ATTACK3);
+        }
+        lastRemoteLanInputBits_ = remoteInputBits;
+    } else if (enemyCooldown_ <= 0.0) {
         tryEnemyAttack(dt);
     }
 
     updateArcenProjectile(dt);
     updateEnemyProjectile(dt);
-    
+    pushHostCombatState(false);
     update();
 }
+
+void BattleWidget::drawLevelTransitionPortal(QPainter &painter) {
+    if (levelTransitionPortalSpriteSheet_.isNull()) {
+        return;
+    }
+
+    const int frameCount = 6;
+    const int frameWidth = qMax(1, levelTransitionPortalSpriteSheet_.width() / frameCount);
+    const int frameHeight = levelTransitionPortalSpriteSheet_.height();
+    const int frameIndex = qBound(0, static_cast<int>(levelTransitionTime_ / 0.11) % frameCount, frameCount - 1);
+    const QPixmap frame = levelTransitionPortalSpriteSheet_.copy(frameIndex * frameWidth, 0, frameWidth, frameHeight);
+
+    const QRect visibleBounds = opaqueBounds(frame);
+    const qreal desiredHeight = qMax(150.0, height() * 0.40);
+    const qreal scale = desiredHeight / qMax(1, visibleBounds.height());
+    const qreal scaledWidth = frame.width() * scale;
+    const qreal scaledHeight = frame.height() * scale;
+    const qreal visibleCenterX = visibleBounds.x() + visibleBounds.width() * 0.5;
+    const qreal visibleBottomY = visibleBounds.y() + visibleBounds.height();
+    const qreal portalCenterX = width() * 0.98;
+    const qreal portalGroundY = groundY() + height() * 0.012;
+    const qreal drawX = portalCenterX - visibleCenterX * scale;
+    const qreal drawY = portalGroundY - visibleBottomY * scale;
+    const QRect targetRect = QRectF(drawX, drawY, scaledWidth, scaledHeight).toRect();
+
+    painter.save();
+    painter.translate(targetRect.center().x(), 0.0);
+    painter.scale(-1.0, 1.0);
+    painter.translate(-targetRect.center().x(), 0.0);
+    painter.drawPixmap(targetRect, frame, QRectF(0, 0, frame.width(), frame.height()));
+    painter.restore();
+}
+
+void BattleWidget::drawFinalRescueTransition(QPainter &painter) {
+    if (!finalRescueTransitionActive_) {
+        return;
+    }
+
+    const double floorY = groundY();
+    const double runStart = 4.4;
+    const double transitionDuration = 7.6;
+    const double runProgress = qBound(0.0, (levelTransitionTime_ - runStart) / qMax(0.1, transitionDuration - runStart), 1.0);
+    const double kingX = levelTransitionStartKingX_ + (width() * 0.99 - levelTransitionStartKingX_) * runProgress;
+    const bool kingRunning = levelTransitionTime_ >= runStart;
+    const double kingOpacity = 1.0 - qBound(0.0, (levelTransitionTime_ - 7.0) / 0.45, 1.0);
+    const double stageHeight = qMax(180.0, (height() - 160.0) * 0.34);
+    const double kingHeight = stageHeight * 0.95;
+
+    const QPixmap kingSprite = kingRunning
+        ? frameFromSheet("assets/story/king_1/Sprites/Run.png", 8, levelTransitionTime_ - runStart, 110)
+        : frameFromSheet("assets/story/king_1/Sprites/Idle.png", 8, levelTransitionTime_, 170);
+
+    drawGroundedSprite(painter, kingSprite, kingX, floorY - 6.0, kingHeight, false, kingOpacity);
+}
+
 
 void BattleWidget::updatePlayerMovement(double dt) {
     double moveAmount = MOVE_SPEED * dt;
@@ -659,6 +2031,9 @@ void BattleWidget::updatePlayerMovement(double dt) {
                              st == AnimationState::HURT || st == AnimationState::DEATH);
         if (!locked) {
             if (movingLeft_ || movingRight_) {
+                if (st != AnimationState::RUN && soundManager_) {
+                    soundManager_->playRun();
+                }
                 playerAnimChar_->setAnimationState(AnimationState::RUN);
             } else {
                 playerAnimChar_->setAnimationState(AnimationState::IDLE);
@@ -670,6 +2045,30 @@ void BattleWidget::updatePlayerMovement(double dt) {
 void BattleWidget::updateEnemyAI(double dt) {
     double distToPlayer = playerX_ - enemyX_;
     double moveAmount = 150.0 * dt; // Enemy is slightly slower
+    const bool duelPlayerRival = gameManager_
+        && (gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE));
+    if (duelPlayerRival) {
+        switch (gameManager_->getLanOpponentPlayerType()) {
+            case PlayerType::HUNTRESS:
+            case PlayerType::MARTIAL:
+            case PlayerType::MARTIAL_HERO:
+                moveAmount = 178.0 * dt;
+                break;
+            case PlayerType::ARCEN:
+            case PlayerType::WIZARD:
+                moveAmount = 142.0 * dt;
+                break;
+            case PlayerType::KNIGHT:
+            case PlayerType::MEDIEVAL_WARRIOR:
+                moveAmount = 148.0 * dt;
+                break;
+            default:
+                moveAmount = 160.0 * dt;
+                break;
+        }
+    }
     
     // Simple AI: approach if far, retreat if close
     if (std::abs(distToPlayer) > ATTACK_RANGE + 50) {
@@ -715,9 +2114,12 @@ void BattleWidget::tryPlayerAttack(double dt) {
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(queuedPlayerAttackState_);
     }
-    if (soundManager_) soundManager_->playAttack();
+
     const PlayerType playerType = gameManager_ ? gameManager_->getSelectedPlayerType() : PlayerType::KNIGHT;
     if (playerType == PlayerType::ARCEN) {
+        if (soundManager_) {
+            soundManager_->playAttack();
+        }
         int damage = player->calculateDamage();
         if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
             damage = static_cast<int>(damage * 1.2);
@@ -732,6 +2134,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
         } else {
             statusMessage_ = "Arrow already in flight";
             statusDisplayTime_ = 0.7;
+            ++levelBattleReport_.playerMisses;
         }
 
         playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
@@ -739,10 +2142,12 @@ void BattleWidget::tryPlayerAttack(double dt) {
     }
 
     double distToEnemy = std::abs(enemyX_ - playerX_);
+    if (soundManager_) {
+        soundManager_->playAttack();
+    }
     
     if (distToEnemy <= ATTACK_RANGE) {
         int damage = player->calculateDamage();
-        QString attackLabel = "Attack";
         if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
             damage = static_cast<int>(damage * 1.2);
         } else if (queuedPlayerAttackState_ == AnimationState::ATTACK3) {
@@ -751,6 +2156,11 @@ void BattleWidget::tryPlayerAttack(double dt) {
 
         enemy->takeDamage(damage);
         score_ += damage * 10;
+        levelBattleReport_.damageDealt += qMax(0, damage);
+        ++levelBattleReport_.playerHits;
+        if (gameManager_ && gameManager_->isLanDuel() && lanHostAuthority_) {
+            remoteBattleReport_.damageTaken += qMax(0, damage);
+        }
         
         if (soundManager_) soundManager_->playHit();
         // Trigger enemy hurt animation
@@ -773,6 +2183,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
     } else {
         statusMessage_ = "Miss! Too far away!";
         statusDisplayTime_ = 1.0;
+        ++levelBattleReport_.playerMisses;
     }
 
     playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
@@ -823,9 +2234,14 @@ void BattleWidget::tryEnemyAttack(double dt) {
 
         spawnEnemyProjectile(enemyType, damage);
         enemyCooldown_ = ENEMY_ATTACK_COOLDOWN + 0.25;
-        statusMessage_ = enemyType == EnemyType::FIRE_WORM ? "Fire Worm launches a fireball!"
-                      : enemyType == EnemyType::FLYING_DEMON ? "Flying Demon hurls a hellfire orb!"
-                                                             : "Nightweaver fires a shadow bolt!";
+        if (gameManager_ && gameManager_->isLanDuel()) {
+            statusMessage_ = QString("%1 launches a ranged strike!")
+                                 .arg(QString::fromStdString(enemy->getName()));
+        } else {
+            statusMessage_ = enemyType == EnemyType::FIRE_WORM ? "Fire Worm launches a fireball!"
+                          : enemyType == EnemyType::FLYING_DEMON ? "Flying Demon hurls a hellfire orb!"
+                                                                 : "Nightweaver fires a shadow bolt!";
+        }
         statusDisplayTime_ = 1.3;
         return;
     }
@@ -856,7 +2272,9 @@ void BattleWidget::tryEnemyAttack(double dt) {
         }
 
         player->takeDamage(damage);
-        if (soundManager_) soundManager_->playHit();
+        if (soundManager_) {
+            soundManager_->playHit();
+        }
         
         // Trigger enemy attack animation
         if (enemyAnimChar_) {
@@ -869,7 +2287,9 @@ void BattleWidget::tryEnemyAttack(double dt) {
         }
         
         enemyCooldown_ = ENEMY_ATTACK_COOLDOWN;
-        statusMessage_ = QString("Enemy deals %1 damage!").arg(damage);
+        statusMessage_ = (gameManager_ && gameManager_->isDuelMode())
+            ? QString("%1 lands %2 damage!").arg(QString::fromStdString(enemy->getName())).arg(damage)
+            : QString("Enemy deals %1 damage!").arg(damage);
         statusDisplayTime_ = 1.5;
         
         if (!player->isAlive()) {
@@ -950,8 +2370,7 @@ void BattleWidget::loadCharacterAnimations(PlayerType type) {
             playerAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/Attack.png", false, 60);
             playerAnimManager_->loadAnimation(AnimationState::DEATH, 10, basePath + "/Death.png", false, 110);
             playerAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
-            arcenArrowSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Static.png"));
-            arcenArrowMoveSprite_ = QPixmap(resolveAssetPath("assets/players/Arcen/Sprites/Arrow/Move.png"));
+            ensureArcenArrowAssetsLoaded();
             break;
 
         case PlayerType::MARTIAL:
@@ -1031,6 +2450,146 @@ void BattleWidget::loadCharacterAnimations(PlayerType type) {
     if (!idleSheet.isNull()) {
         const int frameWidth = idleSheet.width() / idleFrames;
         playerFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
+    }
+}
+
+void BattleWidget::loadOpponentCharacterAnimations(PlayerType type) {
+    if (!enemyAnimManager_) return;
+
+    enemyFallbackSprite_ = QPixmap();
+    QString basePath;
+
+    switch (type) {
+        case PlayerType::KNIGHT:
+            basePath = resolveAssetPath("assets/players/Knight/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 7, basePath + "/IDLE.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/RUN.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/ATTACK 1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/ATTACK 2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/ATTACK 3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 12, basePath + "/DEATH.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 90);
+            break;
+
+        case PlayerType::DEMON_SLAYER:
+            basePath = resolveAssetPath("assets/players/Demon_Slayer/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 4, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 4, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 4, basePath + "/Attack2.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case PlayerType::FANTASY_WARRIOR:
+            basePath = resolveAssetPath("assets/players/Fantasy_Warrior/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 7, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 7, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case PlayerType::HUNTRESS:
+            basePath = resolveAssetPath("assets/players/Huntress/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 5, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 7, basePath + "/Attack3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 8, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            break;
+
+        case PlayerType::ARCEN:
+            basePath = resolveAssetPath("assets/players/Arcen/Sprites/Character");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/Attack.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 10, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
+            break;
+
+        case PlayerType::MARTIAL:
+            basePath = resolveAssetPath("assets/players/Martial/Sprite");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 7, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 9, basePath + "/Attack3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 11, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take Hit.png", false, 90);
+            break;
+
+        case PlayerType::MARTIAL_HERO:
+            basePath = resolveAssetPath("assets/players/Martial_Hero/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 6, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/Attack2.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 6, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Take Hit.png", false, 90);
+            break;
+
+        case PlayerType::MEDIEVAL_WARRIOR:
+            basePath = resolveAssetPath("assets/players/Medieval_Warrior/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 10, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 6, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 4, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 5, basePath + "/Attack3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 9, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Get Hit.png", false, 90);
+            break;
+
+        case PlayerType::WIZARD:
+            basePath = resolveAssetPath("assets/players/Wizard/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 6, basePath + "/Idle.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/Run.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 8, basePath + "/Attack1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 8, basePath + "/Attack2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 8, basePath + "/Attack2.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Hit.png", false, 90);
+            break;
+
+        default:
+            basePath = resolveAssetPath("assets/players/Knight/Sprites");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 7, basePath + "/IDLE.png", true, 150);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 8, basePath + "/RUN.png", true, 95);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/ATTACK 1.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 5, basePath + "/ATTACK 2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 6, basePath + "/ATTACK 3.png", false, 60);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 12, basePath + "/DEATH.png", false, 110);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/HURT.png", false, 90);
+            break;
+    }
+
+    QString idlePath;
+    int idleFrames = 7;
+    switch (type) {
+        case PlayerType::KNIGHT: idlePath = basePath + "/IDLE.png"; idleFrames = 7; break;
+        case PlayerType::DEMON_SLAYER: idlePath = basePath + "/Idle.png"; idleFrames = 4; break;
+        case PlayerType::FANTASY_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::HUNTRESS: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case PlayerType::ARCEN: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::MARTIAL: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::MARTIAL_HERO: idlePath = basePath + "/Idle.png"; idleFrames = 8; break;
+        case PlayerType::MEDIEVAL_WARRIOR: idlePath = basePath + "/Idle.png"; idleFrames = 10; break;
+        case PlayerType::WIZARD: idlePath = basePath + "/Idle.png"; idleFrames = 6; break;
+        default: break;
+    }
+
+    QPixmap idleSheet(idlePath);
+    if (!idleSheet.isNull()) {
+        const int frameWidth = idleSheet.width() / idleFrames;
+        enemyFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
     }
 }
 
@@ -1115,12 +2674,101 @@ void BattleWidget::loadEnemyAnimations(EnemyType type) {
             idlePath = basePath + "/Idle.png";
             idleFrames = 8;
             break;
+
+        case EnemyType::BLACK_WEREWOLF:
+            basePath = resolveAssetPath("assets/beasts/werewolf/Black_Werewolf");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 9, basePath + "/Run.png", true, 88);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack_1.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack_2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 5, basePath + "/Attack_3.png", false, 66);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 2, basePath + "/Dead.png", false, 180);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 2, basePath + "/Hurt.png", false, 110);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 8;
+            break;
+
+        case EnemyType::RED_WEREWOLF:
+            basePath = resolveAssetPath("assets/beasts/werewolf/Red_Werewolf");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 9, basePath + "/Run.png", true, 88);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack_1.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack_2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 5, basePath + "/Attack_3.png", false, 66);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 2, basePath + "/Dead.png", false, 180);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 2, basePath + "/Hurt.png", false, 110);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 8;
+            break;
+
+        case EnemyType::WHITE_WEREWOLF:
+            basePath = resolveAssetPath("assets/beasts/werewolf/White_Werewolf");
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, 9, basePath + "/Run.png", true, 88);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, 6, basePath + "/Attack_1.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, 4, basePath + "/Attack_2.png", false, 70);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 5, basePath + "/Attack_3.png", false, 66);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 2, basePath + "/Dead.png", false, 180);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 2, basePath + "/Hurt.png", false, 110);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = 8;
+            break;
     }
 
     QPixmap idleSheet(idlePath);
     if (!idleSheet.isNull() && idleFrames > 0) {
         const int frameWidth = idleSheet.width() / idleFrames;
         enemyFallbackSprite_ = idleSheet.copy(0, 0, frameWidth, idleSheet.height());
+    }
+}
+
+void BattleWidget::drawFinalKingStageScene(QPainter &painter) {
+    if (!gameManager_ || !gameManager_->isFinalKingStage()) {
+        return;
+    }
+
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    if (!enemy) {
+        return;
+    }
+
+    const double floorY = groundY();
+    const double stageHeight = qMax(180.0, (height() - 160.0) * 0.34);
+    const double kingHeight = stageHeight * 0.95;
+    const double wolfHeight = stageHeight * 0.954;
+    const double kingX = width() * 0.90;
+
+    const QPixmap kingSprite = firstFrameFromSheet("assets/story/king_1/Sprites/Idle.png", 8);
+    drawGroundedSprite(painter, kingSprite, kingX, floorY - 6.0, kingHeight, false, 0.92);
+
+    const auto drawGuardianIfWaiting = [&](EnemyType type, qreal x) {
+        if (enemy->getEnemyType() == type) {
+            return;
+        }
+
+        QPixmap sprite;
+        switch (type) {
+            case EnemyType::BLACK_WEREWOLF:
+                sprite = firstFrameFromSheet("assets/beasts/werewolf/Black_Werewolf/Idle.png", 8);
+                break;
+            case EnemyType::RED_WEREWOLF:
+                sprite = firstFrameFromSheet("assets/beasts/werewolf/Red_Werewolf/Idle.png", 8);
+                break;
+            case EnemyType::WHITE_WEREWOLF:
+                sprite = firstFrameFromSheet("assets/beasts/werewolf/White_Werewolf/Idle.png", 8);
+                break;
+            default:
+                break;
+        }
+
+        drawGroundedSprite(painter, sprite, x, floorY, wolfHeight, true, 0.96);
+    };
+
+    if (enemy->getEnemyType() == EnemyType::BLACK_WEREWOLF) {
+        drawGuardianIfWaiting(EnemyType::RED_WEREWOLF, width() * 0.78);
+        drawGuardianIfWaiting(EnemyType::WHITE_WEREWOLF, width() * 0.86);
+    } else if (enemy->getEnemyType() == EnemyType::RED_WEREWOLF) {
+        drawGuardianIfWaiting(EnemyType::WHITE_WEREWOLF, width() * 0.84);
     }
 }
 
@@ -1143,12 +2791,27 @@ void BattleWidget::loadPrototypeAnimations() {
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     if (enemy) {
         loadEnemyAnimations(enemy->getEnemyType());
+        if (gameManager_->isLanDuel()) {
+            loadOpponentCharacterAnimations(gameManager_->getLanOpponentPlayerType());
+        } else if (gameManager_->isDuelMode()
+                   && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE) {
+            loadOpponentCharacterAnimations(gameManager_->getLanOpponentPlayerType());
+        }
+    }
+
+    if (player->getPlayerType() == PlayerType::ARCEN ||
+        ((gameManager_->isLanDuel()
+          || (gameManager_->isDuelMode()
+              && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE))
+         && gameManager_->getLanOpponentPlayerType() == PlayerType::ARCEN)) {
+        ensureArcenArrowAssetsLoaded();
     }
 }
 
 void BattleWidget::spawnArcenProjectile(int damage) {
     arcenProjectileActive_ = true;
     arcenProjectileDamage_ = qMax(1, damage);
+    ++levelBattleReport_.projectilesFired;
     arcenProjectileFacingRight_ = enemyX_ >= playerX_;
     arcenProjectileAnimTime_ = 0.0;
     arcenProjectileFrame_ = 0;
@@ -1178,6 +2841,7 @@ void BattleWidget::updateArcenProjectile(double dt) {
 
     if (arcenProjectileX_ < ARENA_LEFT_X || arcenProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
         arcenProjectileActive_ = false;
+        ++levelBattleReport_.playerMisses;
         return;
     }
 
@@ -1196,7 +2860,9 @@ void BattleWidget::updateArcenProjectile(double dt) {
     if (hitDistance <= ARCEN_PROJECTILE_HIT_WIDTH) {
         enemy->takeDamage(arcenProjectileDamage_);
         score_ += arcenProjectileDamage_ * 10;
-        if (soundManager_) soundManager_->playHit();
+        if (soundManager_) {
+            soundManager_->playHit();
+        }
 
         if (enemyAnimChar_) {
             enemyAnimChar_->takeDamage();
@@ -1221,21 +2887,32 @@ void BattleWidget::updateArcenProjectile(double dt) {
 }
 
 void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
+    const bool opponentUsesPlayerRival = gameManager_
+        && (gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE));
+    const bool remoteArcenProjectile = opponentUsesPlayerRival
+        && gameManager_->getLanOpponentPlayerType() == PlayerType::ARCEN
+        && (!gameManager_->isLanDuel() || lanHostAuthority_);
+
     enemyProjectileActive_ = true;
     enemyProjectileExploding_ = false;
+    enemyProjectileUsesArcenArrow_ = remoteArcenProjectile;
     enemyProjectileType_ = type;
     enemyProjectileDamage_ = qMax(1, damage);
     enemyProjectileFacingRight_ = playerX_ >= enemyX_;
     enemyProjectileAnimTime_ = 0.0;
     enemyProjectileFrame_ = 0;
     enemyProjectileExplosionTime_ = 0.0;
-    enemyProjectileSpeed_ = (type == EnemyType::FIRE_WORM) ? 520.0
-                         : (type == EnemyType::FLYING_DEMON) ? 640.0
-                                                             : 760.0;
+    enemyProjectileSpeed_ = remoteArcenProjectile ? 900.0
+        : (type == EnemyType::FIRE_WORM) ? 520.0
+        : (type == EnemyType::FLYING_DEMON) ? 640.0
+                                            : 760.0;
 
     const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
     const qreal desiredEnemyHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
-    const qreal projectileHeightRatio = (type == EnemyType::FIRE_WORM) ? 0.28
+    const qreal projectileHeightRatio = remoteArcenProjectile ? ARCEN_ARROW_LAUNCH_HEIGHT_RATIO
+                                    : (type == EnemyType::FIRE_WORM) ? 0.28
                                     : (type == EnemyType::FLYING_DEMON) ? 0.72
                                                                         : 0.68;
     enemyProjectileY_ = groundY() - desiredEnemyHeight * projectileHeightRatio;
@@ -1267,7 +2944,8 @@ void BattleWidget::updateEnemyProjectile(double dt) {
 
     if (enemyProjectileAnimTime_ >= 0.08) {
         enemyProjectileAnimTime_ = 0.0;
-        const int maxMoveFrames = (enemyProjectileType_ == EnemyType::FIRE_WORM ||
+        const int maxMoveFrames = enemyProjectileUsesArcenArrow_ ? 2
+                               : (enemyProjectileType_ == EnemyType::FIRE_WORM ||
                                    enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 6 : 4;
         enemyProjectileFrame_ = (enemyProjectileFrame_ + 1) % maxMoveFrames;
     }
@@ -1282,6 +2960,9 @@ void BattleWidget::updateEnemyProjectile(double dt) {
     }
 
     if (enemyProjectileX_ < ARENA_LEFT_X || enemyProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
+        if (gameManager_ && gameManager_->isLanDuel() && lanHostAuthority_) {
+            ++remoteBattleReport_.playerMisses;
+        }
         enemyProjectileActive_ = false;
         return;
     }
@@ -1289,17 +2970,21 @@ void BattleWidget::updateEnemyProjectile(double dt) {
     const double hitDistance = std::abs(enemyProjectileX_ - playerX_);
     if (hitDistance <= ENEMY_PROJECTILE_HIT_WIDTH) {
         player->takeDamage(enemyProjectileDamage_);
-        if (soundManager_) soundManager_->playHit();
+        if (soundManager_) {
+            soundManager_->playHit();
+        }
         if (playerAnimChar_) {
             playerAnimChar_->takeDamage();
         }
 
         statusMessage_ = enemyProjectileType_ == EnemyType::FIRE_WORM
-                             ? QString("Fireball hit! Took %1 damage!").arg(enemyProjectileDamage_)
+                             ? (enemyProjectileUsesArcenArrow_
+                                 ? QString("Arrow hit! Took %1 damage!").arg(enemyProjectileDamage_)
+                                 : QString("Fireball hit! Took %1 damage!").arg(enemyProjectileDamage_))
                              : QString("Shadow bolt hit! Took %1 damage!").arg(enemyProjectileDamage_);
         statusDisplayTime_ = 1.2;
 
-        enemyProjectileExploding_ = !enemyProjectileExplodeSprite_.isNull();
+        enemyProjectileExploding_ = !enemyProjectileUsesArcenArrow_ && !enemyProjectileExplodeSprite_.isNull();
         enemyProjectileFrame_ = 0;
         enemyProjectileAnimTime_ = 0.0;
         enemyProjectileExplosionTime_ = 0.0;
@@ -1374,6 +3059,53 @@ void BattleWidget::drawEnemyProjectile(QPainter &painter) {
         return;
     }
 
+    if (enemyProjectileUsesArcenArrow_) {
+        ensureArcenArrowAssetsLoaded();
+
+        QPixmap spriteSheet = arcenArrowMoveSprite_.isNull() ? arcenArrowSprite_ : arcenArrowMoveSprite_;
+        if (spriteSheet.isNull()) {
+            return;
+        }
+
+        QPixmap sprite;
+        if (!arcenArrowMoveSprite_.isNull()) {
+            const int frameWidth = qMax(1, spriteSheet.width() / 2);
+            const int frameHeight = spriteSheet.height();
+            const int x = qBound(0, enemyProjectileFrame_ * frameWidth, spriteSheet.width() - frameWidth);
+            sprite = spriteSheet.copy(x, 0, frameWidth, frameHeight);
+        } else {
+            sprite = spriteSheet;
+        }
+
+        const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
+        const qreal desiredEnemyHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
+        QPixmap arcenReferenceFrame;
+        if (enemyAnimManager_) {
+            arcenReferenceFrame = enemyAnimManager_->getFrame(AnimationState::IDLE, 0);
+        }
+        if (arcenReferenceFrame.isNull()) {
+            arcenReferenceFrame = sprite;
+        }
+
+        const QRect referenceBounds = opaqueBounds(arcenReferenceFrame);
+        const qreal referenceVisibleHeight = qMax(1, referenceBounds.height());
+        const qreal scale = desiredEnemyHeight / referenceVisibleHeight;
+        const qreal w = sprite.width() * scale;
+        const qreal h = sprite.height() * scale;
+
+        painter.save();
+        if (!enemyProjectileFacingRight_) {
+            painter.translate(enemyProjectileX_, 0.0);
+            painter.scale(-1.0, 1.0);
+            painter.translate(-enemyProjectileX_, 0.0);
+        }
+
+        painter.drawPixmap(QRectF(enemyProjectileX_ - w * 0.5, enemyProjectileY_ - h * 0.5, w, h),
+                           sprite, QRectF(0, 0, sprite.width(), sprite.height()));
+        painter.restore();
+        return;
+    }
+
     QPixmap spriteSheet = enemyProjectileExploding_ ? enemyProjectileExplodeSprite_ : enemyProjectileMoveSprite_;
     if (spriteSheet.isNull()) {
         return;
@@ -1422,8 +3154,8 @@ void BattleWidget::drawHUD(QPainter &painter) {
 
     const int outerMargin = 28;
     const int hudY = 18;
-    const int panelWidth = qMin(360, qMax(260, (width() - 260) / 2));
-    const int panelHeight = 74;
+    const int panelWidth = qMin(448, qMax(320, (width() - 200) / 2));
+    const int panelHeight = 102;
     const int centerWidth = 184;
     const QRectF playerPanel(outerMargin, hudY, panelWidth, panelHeight);
     const QRectF enemyPanel(width() - outerMargin - panelWidth, hudY, panelWidth, panelHeight);
@@ -1436,6 +3168,8 @@ void BattleWidget::drawHUD(QPainter &painter) {
                          int hp,
                          int maxHp,
                          double displayRatio,
+                         const QPixmap &portrait,
+                         const QString &portraitFallback,
                          const QColor &accentStart,
                          const QColor &accentEnd) {
         QPainterPath panelPath;
@@ -1448,20 +3182,42 @@ void BattleWidget::drawHUD(QPainter &painter) {
         painter.setPen(QPen(QColor("#D4AF37"), 2));
         painter.drawPath(panelPath);
 
-        QRectF headerStrip = panelRect.adjusted(12, 10, -12, -42);
+        const qreal portraitSize = 112.0;
+        const qreal portraitInset = -24.0;
+        const qreal portraitFloatY = -12.0;
+        const QRectF portraitRect = leftAligned
+            ? QRectF(panelRect.x() + portraitInset, panelRect.y() + portraitFloatY, portraitSize, portraitSize)
+            : QRectF(panelRect.right() - portraitInset - portraitSize, panelRect.y() + portraitFloatY, portraitSize, portraitSize);
+
+        const qreal contentLeft = leftAligned ? (portraitRect.right() + 18.0) : (panelRect.x() + 18.0);
+        const qreal contentRight = leftAligned ? (panelRect.right() - 18.0) : (portraitRect.left() - 18.0);
+        const QRectF headerStrip(contentLeft, panelRect.y() + 12.0, qMax(0.0, contentRight - contentLeft), 30.0);
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor(255, 255, 255, 16));
         painter.drawRoundedRect(headerStrip, 10, 10);
+        drawPortraitBadge(painter, portraitRect, portrait, accentEnd.lighter(118), portraitFallback);
 
-        QFont titleFont("Showcard Gothic", 10);
-        if (titleFont.family() != "Showcard Gothic") {
-            titleFont = painter.font();
-            titleFont.setPointSize(11);
-            titleFont.setBold(true);
-        }
+        auto fittedHudTitleFont = [&](const QString& text, qreal maxWidth) {
+            QFont titleFont("Showcard Gothic", 10);
+            if (titleFont.family() != "Showcard Gothic") {
+                titleFont = painter.font();
+                titleFont.setBold(true);
+            }
+
+            for (int pointSize = 10; pointSize >= 7; --pointSize) {
+                titleFont.setPointSize(pointSize);
+                QFontMetricsF metrics(titleFont);
+                if (metrics.horizontalAdvance(text) <= maxWidth) {
+                    break;
+                }
+            }
+            return titleFont;
+        };
+        const qreal headerWidth = qMax(0.0, contentRight - contentLeft);
+        QFont titleFont = fittedHudTitleFont(title, headerWidth);
         painter.setFont(titleFont);
         painter.setPen(QColor("#F7D774"));
-        painter.drawText(panelRect.adjusted(16, 8, -16, 0),
+        painter.drawText(QRectF(contentLeft, panelRect.y() + 10.0, headerWidth, 20.0),
                          leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
                          title);
 
@@ -1471,11 +3227,11 @@ void BattleWidget::drawHUD(QPainter &painter) {
         subFont.setBold(false);
         painter.setFont(subFont);
         painter.setPen(QColor("#C6A66A"));
-        painter.drawText(panelRect.adjusted(16, 30, -16, 0),
+        painter.drawText(QRectF(contentLeft, panelRect.y() + 34.0, qMax(0.0, contentRight - contentLeft), 16.0),
                          leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
                          subtitle);
 
-        const QRectF barRect(panelRect.x() + 16.0, panelRect.bottom() - 28.0, panelRect.width() - 32.0, 16.0);
+        const QRectF barRect(contentLeft, panelRect.bottom() - 21.0, qMax(0.0, contentRight - contentLeft), 16.0);
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor(67, 44, 29, 235));
         painter.drawRoundedRect(barRect, 8, 8);
@@ -1514,16 +3270,22 @@ void BattleWidget::drawHUD(QPainter &painter) {
               player->getHealth(),
               player->getMaxHealth(),
               playerHpDisplay_,
+              playerProfilePortrait_,
+              QString::fromStdString(player->getName()),
               QColor("#7CFF63"),
               QColor("#22C55E"));
 
     drawPanel(enemyPanel,
               false,
               QString::fromStdString(enemy->getName()).toUpper(),
-              QString("Hostile target"),
+              gameManager_->isLanDuel()
+                  ? QString("Linked rival")
+                  : (gameManager_->isDuelMode() ? QString("Exhibition rival") : QString("Hostile target")),
               enemy->getHealth(),
               enemy->getMaxHealth(),
               enemyHpDisplay_,
+              enemyProfilePortrait_,
+              QString::fromStdString(enemy->getName()),
               QColor("#FF9A56"),
               QColor("#DC2626"));
 
@@ -1537,7 +3299,11 @@ void BattleWidget::drawHUD(QPainter &painter) {
     painter.setPen(QColor("#C6A66A"));
     QFont labelFont("Segoe UI", 8, QFont::DemiBold);
     painter.setFont(labelFont);
-    painter.drawText(scorePanel.adjusted(0, 8, 0, 0), Qt::AlignHCenter | Qt::AlignTop, "ARENA SCORE");
+    painter.drawText(scorePanel.adjusted(0, 8, 0, 0),
+                     Qt::AlignHCenter | Qt::AlignTop,
+                     gameManager_->isLanDuel()
+                         ? "ARENA LINK DUEL"
+                         : (gameManager_->isDuelMode() ? "1V1 EXHIBITION" : "ARENA SCORE"));
 
     QFont scoreFont("Showcard Gothic", 24);
     if (scoreFont.family() != "Showcard Gothic") {
@@ -1553,7 +3319,9 @@ void BattleWidget::drawHUD(QPainter &painter) {
     painter.setFont(levelFont);
     painter.setPen(QColor("#F3D38C"));
     painter.drawText(scorePanel.adjusted(0, 0, 0, 8), Qt::AlignHCenter | Qt::AlignBottom,
-                     QString("STAGE %1 / %2").arg(gameManager_->getCurrentLevel()).arg(gameManager_->getTotalLevels()));
+                     (gameManager_->isLanDuel() || gameManager_->isDuelMode())
+                         ? QStringLiteral("ROUND 1 / 1")
+                         : QString("STAGE %1 / %2").arg(gameManager_->getCurrentLevel()).arg(gameManager_->getTotalLevels()));
 }
 
 void BattleWidget::tryPlayerHeal() {
@@ -1564,7 +3332,9 @@ void BattleWidget::tryPlayerHeal() {
     
     player->takeDamage(-25); // Heal 25 HP
     healCooldown_ = 5.0; // 5 second cooldown
-    if (soundManager_) soundManager_->playHeal();
+    if (soundManager_) {
+        soundManager_->playHeal();
+    }
     
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(AnimationState::IDLE); // Play idle as heal pose
@@ -1589,6 +3359,10 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
         const EnemyType enemyType = enemy ? enemy->getEnemyType() : EnemyType::FIRE_WORM;
         if (enemyType == EnemyType::EVIL_WIZARD) {
             desiredVisibleHeight *= 1.2;
+        } else if (enemyType == EnemyType::BLACK_WEREWOLF ||
+                   enemyType == EnemyType::RED_WEREWOLF ||
+                   enemyType == EnemyType::WHITE_WEREWOLF) {
+            desiredVisibleHeight *= 0.9;
         }
 
         flipSprite = enemyAnimChar_->isFacingLeft();

@@ -40,19 +40,26 @@ class GameManager : public QObject {
     Q_OBJECT
 
 public:
-    // 1v1 teammate:
+    // LAN teammate:
     // Add duel-theme setup/state here.
     // GameManager should know whether the run is:
     // - Save the Kings campaign
-    // - 1v1 single-match duel
+    // - Arena Link single-match duel
     explicit GameManager(QObject *parent = nullptr);
     ~GameManager();
 
     // Ranking teammate:
     // GameManager should calculate battle rewards and expose enough result info
     // so MainWindow/DatabaseManager can update progression cleanly.
-    void startCampaign(const std::string &playerName, PlayerType playerType);
-    void startDuel(const std::string &playerName, PlayerType playerType, const DuelConfig& config);
+    void startGame(const std::string &playerName, PlayerType playerType);
+    void startLanDuel(const std::string &playerName,
+                      PlayerType playerType,
+                      const std::string &opponentName,
+                      PlayerType opponentType,
+                      const std::string &arenaName);
+    void startDuel(const std::string &playerName,
+                   PlayerType playerType,
+                   const DuelConfig& config);
     bool advanceToNextLevel();
     void finishBattle();
     void addScore(int amount);
@@ -64,15 +71,20 @@ public:
     std::string getBattleTitle() const;
     GameState getState() const;
     PlayerType getSelectedPlayerType() const;
+    PlayerType getLanOpponentPlayerType() const;
+    std::string getLanOpponentName() const;
+    std::string getLanArenaName() const;
     bool hasCompletedCampaign() const;
+    bool isLanDuel() const;
+    bool isFinalKingStage() const;
+    bool advanceFinalGuardianWave();
     
+    Player* getPlayer() const;
+    Enemy* getCurrentEnemy() const;
     RunMode getRunMode() const;
     DuelConfig getDuelConfig() const;
     bool isDuelMode() const;
     bool didWinDuel() const;
-    
-    Player* getPlayer() const;
-    Enemy* getCurrentEnemy() const;
 
     // Ranking and Scoring Helpers
     static int calculateRewardForMatch(RunMode mode, bool victory, int stagesCleared, bool fullClear);
@@ -83,7 +95,7 @@ signals:
     void battleFinished();
 
 private:
-    // 1v1 teammate:
+    // LAN teammate:
     // Duel support likely needs:
     // - selected opponent category (player/enemy)
     // - selected opponent type
@@ -100,7 +112,12 @@ private:
     Player* player_;
     Enemy* currentEnemy_;
     PlayerType selectedPlayerType_;
+    PlayerType duelOpponentPlayerType_;
+    std::string duelOpponentName_;
+    std::string duelArenaName_;
     bool campaignCompleted_;
+    bool lanDuelMode_;
+    int finalGuardianIndex_;
     RunMode runMode_;
     DuelConfig duelConfig_;
     bool duelVictory_;

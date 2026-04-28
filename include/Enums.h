@@ -27,7 +27,10 @@ enum class EnemyType {
     FIRE_WIZARD,
     FLYING_DEMON,
     NIGHTWEAVER,
-    EVIL_WIZARD
+    EVIL_WIZARD,
+    BLACK_WEREWOLF,
+    RED_WEREWOLF,
+    WHITE_WEREWOLF
 };
 
 enum class DifficultyLevel {

@@ -1,6 +1,7 @@
 # OS / editor
 .DS_Store
 Thumbs.db
+.env
 
 # Qt Creator / IDE
 .qtcreator/
@@ -18,4 +19,3 @@ Makefile
 *.ninja
 *.ninja_deps
 *.ninja_log
-

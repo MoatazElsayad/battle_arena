@@ -70,6 +70,26 @@ ProfilePage::ProfilePage(QWidget *parent)
     rankLayout->addStretch();
     mainLayout->addLayout(rankLayout);
 
+    const auto addProgressionRow = [mainLayout](const QString& labelText,
+                                                const QString& valueObjectName,
+                                                const QString& defaultValue) {
+        auto* rowLayout = new QHBoxLayout();
+        auto* label = new QLabel(labelText);
+        auto* value = new QLabel(defaultValue);
+        value->setObjectName(valueObjectName);
+        value->setStyleSheet("color: #FFD700; font-weight: bold;");
+        rowLayout->addWidget(label);
+        rowLayout->addWidget(value);
+        rowLayout->addStretch();
+        mainLayout->addLayout(rowLayout);
+    };
+
+    addProgressionRow("Rating:", "valRating", "0.0 / 5.0");
+    addProgressionRow("Wins:", "valWins", "0");
+    addProgressionRow("Losses:", "valLosses", "0");
+    addProgressionRow("Matches:", "valMatches", "0");
+    addProgressionRow("Win Rate:", "valWinRate", "0.0%");
+
     // Character Type selection
     QHBoxLayout *charLayout = new QHBoxLayout();
     QLabel *charLabel = new QLabel("Select Character:");
@@ -170,15 +190,26 @@ void ProfilePage::on_characterCombo_currentTextChanged(const QString &text) {
     emit characterTypeChanged(text);
 }
 void ProfilePage::updateProgression(const PlayerProgression& stats) {
-    ui->valTotalScore->setText(QString::number(stats.totalScore));
-    ui->valRank->setText(QString::fromStdString(stats.currentRank));
-    ui->valRating->setText(QString("%1 / 5.0").arg(stats.currentRating, 0, 'f', 1));
-    ui->valWins->setText(QString::number(stats.wins));
-    ui->valLosses->setText(QString::number(stats.losses));
-    ui->valMatches->setText(QString::number(stats.totalMatches));
+    setScore(stats.totalScore);
+    setRank(QString::fromStdString(stats.currentRank));
 
-    // Optional: Calculate and show Win %
-    double winRate = (stats.totalMatches > 0) ?
-        (static_cast<double>(stats.wins) / stats.totalMatches) * 100.0 : 0.0;
-    ui->valWinRate->setText(QString("%1%").arg(winRate, 0, 'f', 1));
+    if (QLabel *ratingLabel = findChild<QLabel *>("valRating")) {
+        ratingLabel->setText(QString("%1 / 5.0").arg(stats.currentRating, 0, 'f', 1));
+    }
+    if (QLabel *winsLabel = findChild<QLabel *>("valWins")) {
+        winsLabel->setText(QString::number(stats.wins));
+    }
+    if (QLabel *lossesLabel = findChild<QLabel *>("valLosses")) {
+        lossesLabel->setText(QString::number(stats.losses));
+    }
+    if (QLabel *matchesLabel = findChild<QLabel *>("valMatches")) {
+        matchesLabel->setText(QString::number(stats.totalMatches));
+    }
+
+    const double winRate = stats.totalMatches > 0
+        ? (static_cast<double>(stats.wins) / static_cast<double>(stats.totalMatches)) * 100.0
+        : 0.0;
+    if (QLabel *winRateLabel = findChild<QLabel *>("valWinRate")) {
+        winRateLabel->setText(QString("%1%").arg(winRate, 0, 'f', 1));
+    }
 }

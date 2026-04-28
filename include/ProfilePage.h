@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QString>
 
+#include "ProgressionTypes.h"
+
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class ProfilePage;
