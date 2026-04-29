@@ -717,6 +717,15 @@ void BattleWidget::startBattle() {
     score_ = 0;
     lanBridgeActive_ = gameManager_->isLanDuel() && lanSessionManager_;
     lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_->snapshot().localRole == LanRole::HOST;
+    if (gameManager_->isLanDuel() && (!lanSessionManager_ || lanSessionManager_->snapshot().localRole == LanRole::NONE)) {
+        battleActive_ = false;
+        lanBridgeActive_ = false;
+        lanHostAuthority_ = false;
+        statusMessage_ = QStringLiteral("LAN bridge is not attached. Return to Arena Link and re-prime the duel.");
+        statusDisplayTime_ = 5.0;
+        update();
+        return;
+    }
     if (lanBridgeActive_) {
         lanSessionManager_->beginCombatBridge();
     }
