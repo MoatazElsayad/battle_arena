@@ -21,6 +21,7 @@ public:
     const LanSessionSnapshot& snapshot() const { return snapshot_; }
     const LanCombatInputFrame& latestRemoteCombatInput() const { return latestRemoteCombatInput_; }
     const LanCombatState& latestCombatState() const { return latestCombatState_; }
+    qint64 latestRemoteCombatInputReceivedMs() const { return latestRemoteCombatInputReceivedMs_; }
     bool combatBridgeActive() const { return combatBridgeActive_; }
 
     void setLocalProfile(const QString& username, const QString& fighterName, int fighterType);
@@ -86,6 +87,7 @@ private:
     bool combatBridgeActive_;
     LanCombatInputFrame latestRemoteCombatInput_;
     LanCombatState latestCombatState_;
+    qint64 latestRemoteCombatInputReceivedMs_;
     LanCombatState lastPublishedCombatState_;
     LanSessionSnapshot snapshot_;
 };

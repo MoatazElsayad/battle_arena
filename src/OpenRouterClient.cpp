@@ -3,11 +3,12 @@
 #include "OpenRouterClient.h"
 #include <QNetworkAccessManager>
 #include <QJsonObject>
-#include<QJsonDocument>
-#include<QJsonArray>
-#include<QNetworkReply>
-#include<QNetworkRequest>
-#include<QUrl>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrl>
+#include <QDebug>
 using namespace std;
 
 
@@ -16,60 +17,81 @@ OpenRouterClient::OpenRouterClient()
    Manager = new QNetworkAccessManager();
 }
 
-void OpenRouterClient::SendRequest(QString prompt,function<void(QString)> callback)
+void OpenRouterClient::SendRequest(QString prompt, function<void(QString)> callback)
 {
-  QUrl url("https://openrouter.ai/api/v1/chat/completions");
-  QNetworkRequest request(url);
-  request.setRawHeader("Authorization", "Bearer " + qgetenv("OPENROUTER_API_KEY"));
-  request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    // Get API key from environment
+    QByteArray apiKeyBa = qgetenv("OPENROUTER_API_KEY");
+    QString apiKey = QString::fromUtf8(apiKeyBa);
+    if (apiKey.isEmpty()) {
+        callback(QString("Error: OPENROUTER_API_KEY not set"));
+        return;
+    }
 
-  QJsonObject json;
-  json["model"] = "";
-  QJsonArray messages;
-  QJsonObject message;
-  message["role"] = "user";
-  message["content"] = prompt;
-  messages.append(message);
-  json["messages"] = messages;
+    // Get model from environment, default to gemini-2.0-flash
+    QByteArray modelBa = qgetenv("OPENROUTER_MODEL");
+    QString model = QString::fromUtf8(modelBa);
+    if (model.isEmpty()) {
+        model = QString("google/gemini-2.0-flash-001");
+    }
 
-  QJsonDocument json_in_doc(json);
-  QByteArray array;
-  array = json_in_doc.toJson(QJsonDocument::Compact);
+    QUrl url("https://openrouter.ai/api/v1/chat/completions");
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", ("Bearer " + apiKey).toUtf8());
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-  QNetworkReply* ptr;
-   ptr = Manager->post(request, array);
+    QJsonObject json;
+    json["model"] = model;
+    QJsonArray messages;
+    QJsonObject message;
+    message["role"] = "user";
+    message["content"] = prompt;
+    messages.append(message);
+    json["messages"] = messages;
 
-   connect(ptr, &QNetworkReply::finished,[=] () 
-   {
-    QByteArray response = ptr->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(response);
-    QJsonObject json = doc.object();
+    QJsonDocument json_in_doc(json);
+    QByteArray array = json_in_doc.toJson(QJsonDocument::Compact);
 
-   QJsonArray choices =  json["choices"].toArray();
-   QJsonObject first = choices[0].toObject();
-   QJsonObject message = first["message"].toObject();
-   QString content = message["content"].toString();
-   callback(content);
+    QNetworkReply* ptr = Manager->post(request, array);
 
-   ptr->deleteLater();
+    connect(ptr, &QNetworkReply::finished, [=]() {
+        if (ptr->error() != QNetworkReply::NoError) {
+            callback(QString("Network error: ") + ptr->errorString());
+            ptr->deleteLater();
+            return;
+        }
 
-   });
+        int httpStatus = ptr->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (httpStatus != 200) {
+            callback(QString("HTTP error: ") + QString::number(httpStatus));
+            ptr->deleteLater();
+            return;
+        }
 
-   
+        QByteArray response = ptr->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(response);
+        if (doc.isNull()) {
+            callback(QString("Invalid JSON response"));
+            ptr->deleteLater();
+            return;
+        }
+        QJsonObject jsonObj = doc.object();
 
+        QJsonArray choices = jsonObj["choices"].toArray();
+        if (choices.isEmpty()) {
+            callback(QString("No choices in response"));
+            ptr->deleteLater();
+            return;
+        }
+        QJsonObject first = choices[0].toObject();
+        QJsonObject messageObj = first["message"].toObject();
+        QString content = messageObj["content"].toString();
+        if (content.isEmpty()) {
+            callback(QString("Empty content in response"));
+            ptr->deleteLater();
+            return;
+        }
 
-
-
-
-
+        callback(content);
+        ptr->deleteLater();
+    });
 }
-
-
-
-// Keep it networking-only.
-// No gameplay logic in this file.
-// Main steps:
-// - build request
-// - send async POST
-// - parse response
-// - return success or fallback error

@@ -695,6 +695,11 @@ void BattleWidget::startBattle() {
     levelTransitionTime_ = 0.0;
     levelTransitionStartPlayerX_ = 0.0;
     levelTransitionStartKingX_ = 0.0;
+    movingLeft_ = false;
+    movingRight_ = false;
+    attackPressed_ = false;
+    healPressed_ = false;
+    pausePressed_ = false;
     duelRemoteScore_ = 0;
     lanGuestStateSeen_ = false;
     lanResolvedWinner_ = LanCombatWinner::NONE;
@@ -1670,6 +1675,10 @@ void BattleWidget::drawCountdownOverlay(QPainter &painter) {
 void BattleWidget::keyPressEvent(QKeyEvent *event) {
     if (event->isAutoRepeat()) return;
 
+    lanBridgeActive_ = gameManager_ && gameManager_->isLanDuel() && lanSessionManager_;
+    lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_
+        && lanSessionManager_->snapshot().localRole == LanRole::HOST;
+
     PlayerType playerType = PlayerType::KNIGHT;
     if (gameManager_) {
         playerType = gameManager_->getSelectedPlayerType();
@@ -1746,6 +1755,10 @@ void BattleWidget::keyPressEvent(QKeyEvent *event) {
 
 void BattleWidget::keyReleaseEvent(QKeyEvent *event) {
     if (event->isAutoRepeat()) return;
+
+    lanBridgeActive_ = gameManager_ && gameManager_->isLanDuel() && lanSessionManager_;
+    lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_
+        && lanSessionManager_->snapshot().localRole == LanRole::HOST;
     
     switch (event->key()) {
         case Qt::Key_A:
@@ -1778,6 +1791,10 @@ void BattleWidget::keyReleaseEvent(QKeyEvent *event) {
 
 void BattleWidget::advanceFrame() {
     if (!gameManager_) return;
+
+    lanBridgeActive_ = gameManager_->isLanDuel() && lanSessionManager_;
+    lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_
+        && lanSessionManager_->snapshot().localRole == LanRole::HOST;
 
     const double dt = qMin(0.033, elapsedTimer_.restart() / 1000.0);
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
@@ -2010,9 +2027,16 @@ void BattleWidget::advanceFrame() {
     updatePlayerMovement(dt);
 
     quint8 remoteInputBits = 0;
-    if (lanBridgeActive_ && lanHostAuthority_ && lanSessionManager_) {
-        remoteInputBits = lanSessionManager_->latestRemoteCombatInput().inputBits;
-        updateRemoteLanMovement(dt, remoteInputBits);
+    if (lanBridgeActive_ && lanSessionManager_) {
+        if (lanHostAuthority_) {
+            const qint64 lastRemoteInputMs = lanSessionManager_->latestRemoteCombatInputReceivedMs();
+            const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+            const bool remoteInputFresh = lastRemoteInputMs > 0 && (nowMs - lastRemoteInputMs) <= 180;
+            remoteInputBits = remoteInputFresh
+                ? lanSessionManager_->latestRemoteCombatInput().inputBits
+                : 0;
+            updateRemoteLanMovement(dt, remoteInputBits);
+        }
     } else {
         updateEnemyAI(dt);
     }

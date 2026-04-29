@@ -63,7 +63,8 @@ LanSessionManager::LanSessionManager(QObject* parent)
       lastCombatInputSentMs_(0),
       lastCombatInputBits_(0),
       lastCombatStateSentMs_(0),
-      combatBridgeActive_(false) {
+      combatBridgeActive_(false),
+      latestRemoteCombatInputReceivedMs_(0) {
     qRegisterMetaType<LanSessionSnapshot>("LanSessionSnapshot");
     qRegisterMetaType<LanCombatInputFrame>("LanCombatInputFrame");
     qRegisterMetaType<LanCombatState>("LanCombatState");
@@ -189,6 +190,7 @@ void LanSessionManager::beginCombatBridge() {
     combatBridgeActive_ = true;
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
+    latestRemoteCombatInputReceivedMs_ = 0;
     outgoingCombatSequence_ = 0;
     lastCombatInputSentMs_ = 0;
     lastCombatInputBits_ = 0;
@@ -205,6 +207,7 @@ void LanSessionManager::endCombatBridge() {
     combatBridgeActive_ = false;
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
+    latestRemoteCombatInputReceivedMs_ = 0;
     lastCombatInputSentMs_ = 0;
     lastCombatInputBits_ = 0;
     lastCombatStateSentMs_ = 0;
@@ -442,6 +445,7 @@ void LanSessionManager::resetSession(LanRole role, LanSessionState state) {
     combatBridgeActive_ = false;
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
+    latestRemoteCombatInputReceivedMs_ = 0;
     lastPublishedCombatState_ = LanCombatState();
 
     if (server_->isListening()) {
@@ -553,6 +557,7 @@ void LanSessionManager::processIncomingLine(const QByteArray& line) {
             return;
         case LanPacketType::COMBAT_INPUT:
             latestRemoteCombatInput_ = lanCombatInputFromJson(payload);
+            latestRemoteCombatInputReceivedMs_ = QDateTime::currentMSecsSinceEpoch();
             return;
         case LanPacketType::COMBAT_STATE:
             latestCombatState_ = lanCombatStateFromJson(payload);
