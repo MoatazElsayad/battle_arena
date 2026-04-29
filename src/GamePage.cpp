@@ -140,8 +140,28 @@ void GamePage::onBattleFinished() {
     pendingChronicleReport_.completedLevel = gameManager_->getCurrentLevel();
     pendingChronicleReport_.totalLevels = gameManager_->getTotalLevels();
     pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
-    pendingChronicleReport_.victory = player->isAlive() && !enemy->isAlive();
+    pendingChronicleReport_.victory = gameManager_->isLanDuel()
+        ? pendingChronicleReport_.victory
+        : (player->isAlive() && !enemy->isAlive());
     pendingChronicleReport_.campaignComplete = false;
+
+    if (gameManager_->isLanDuel()) {
+        pendingChronicleReport_.campaignComplete = false;
+        pendingChronicleReport_.completedLevel = 1;
+        pendingChronicleReport_.totalLevels = 1;
+        gameManager_->addScore(pendingChronicleReport_.victory ? 140 : 45);
+        pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
+
+        if (playerInfoLabel_) {
+            playerInfoLabel_->setText(pendingChronicleReport_.victory
+                ? "Arena Link duel won."
+                : "Arena Link duel lost.");
+        }
+
+        updateStats();
+        emit battleFinished();
+        return;
+    }
 
     if (gameManager_->isDuelMode()) {
         pendingChronicleReport_.victory = player->isAlive() && !enemy->isAlive();
@@ -152,9 +172,9 @@ void GamePage::onBattleFinished() {
         pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
 
         if (playerInfoLabel_) {
-            playerInfoLabel_->setText(gameManager_->isLanDuel()
-                ? (pendingChronicleReport_.victory ? "Arena Link duel won." : "Arena Link duel lost.")
-                : (pendingChronicleReport_.victory ? "Exhibition duel won." : "Exhibition duel lost."));
+            playerInfoLabel_->setText(pendingChronicleReport_.victory
+                ? "Exhibition duel won."
+                : "Exhibition duel lost.");
         }
 
         updateStats();

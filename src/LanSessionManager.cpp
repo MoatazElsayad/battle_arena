@@ -12,6 +12,9 @@
 
 namespace {
 
+constexpr qint64 kLanInputHeartbeatMs = 50;
+constexpr qint64 kLanStatePublishIntervalMs = 20;
+
 int lanAddressPriority(const QString& address) {
     if (address.startsWith(QStringLiteral("192.168."))) {
         return 0;
@@ -35,6 +38,18 @@ int lanAddressPriority(const QString& address) {
     return 3;
 }
 
+bool combatStateNeedsImmediatePublish(const LanCombatState& previous, const LanCombatState& next) {
+    return previous.matchFinished != next.matchFinished
+        || previous.winner != next.winner
+        || previous.hostHp != next.hostHp
+        || previous.guestHp != next.guestHp
+        || previous.hostProjectileActive != next.hostProjectileActive
+        || previous.guestProjectileActive != next.guestProjectileActive
+        || previous.hostAnimation != next.hostAnimation
+        || previous.guestAnimation != next.guestAnimation
+        || previous.statusMessage != next.statusMessage;
+}
+
 } // namespace
 
 LanSessionManager::LanSessionManager(QObject* parent)
@@ -45,6 +60,9 @@ LanSessionManager::LanSessionManager(QObject* parent)
       pendingPingToken_(0),
       pendingPingStartedMs_(0),
       outgoingCombatSequence_(0),
+      lastCombatInputSentMs_(0),
+      lastCombatInputBits_(0),
+      lastCombatStateSentMs_(0),
       combatBridgeActive_(false) {
     qRegisterMetaType<LanSessionSnapshot>("LanSessionSnapshot");
     qRegisterMetaType<LanCombatInputFrame>("LanCombatInputFrame");
@@ -172,6 +190,10 @@ void LanSessionManager::beginCombatBridge() {
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
     outgoingCombatSequence_ = 0;
+    lastCombatInputSentMs_ = 0;
+    lastCombatInputBits_ = 0;
+    lastCombatStateSentMs_ = 0;
+    lastPublishedCombatState_ = LanCombatState();
 
     if (snapshot_.state == LanSessionState::MATCH_PRIMED) {
         snapshot_.statusLine = QStringLiteral("Arena Link realtime duel bridge is live.");
@@ -183,6 +205,10 @@ void LanSessionManager::endCombatBridge() {
     combatBridgeActive_ = false;
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
+    lastCombatInputSentMs_ = 0;
+    lastCombatInputBits_ = 0;
+    lastCombatStateSentMs_ = 0;
+    lastPublishedCombatState_ = LanCombatState();
 
     if (snapshot_.state == LanSessionState::MATCH_PRIMED) {
         updateStatusLine();
@@ -195,10 +221,20 @@ void LanSessionManager::sendCombatInput(quint8 inputBits) {
         return;
     }
 
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool changed = inputBits != lastCombatInputBits_;
+    const bool heartbeatDue = lastCombatInputSentMs_ <= 0
+        || (nowMs - lastCombatInputSentMs_) >= kLanInputHeartbeatMs;
+    if (!changed && !heartbeatDue) {
+        return;
+    }
+
     LanCombatInputFrame frame;
     frame.sequence = ++outgoingCombatSequence_;
     frame.inputBits = inputBits;
     sendMessage(LanPacketType::COMBAT_INPUT, lanCombatInputToJson(frame));
+    lastCombatInputBits_ = inputBits;
+    lastCombatInputSentMs_ = nowMs;
 }
 
 void LanSessionManager::publishCombatState(const LanCombatState& state) {
@@ -207,7 +243,19 @@ void LanSessionManager::publishCombatState(const LanCombatState& state) {
     }
 
     latestCombatState_ = state;
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool firstPublish = lastCombatStateSentMs_ <= 0;
+    const bool intervalDue = firstPublish || (nowMs - lastCombatStateSentMs_) >= kLanStatePublishIntervalMs;
+    const bool immediatePublish = firstPublish
+        || state.matchFinished
+        || combatStateNeedsImmediatePublish(lastPublishedCombatState_, state);
+    if (!intervalDue && !immediatePublish) {
+        return;
+    }
+
     sendMessage(LanPacketType::COMBAT_STATE, lanCombatStateToJson(state));
+    lastPublishedCombatState_ = state;
+    lastCombatStateSentMs_ = nowMs;
 }
 
 QStringList LanSessionManager::localAddressHints() const {
@@ -355,6 +403,10 @@ void LanSessionManager::attachSocket(QTcpSocket* socket) {
         return;
     }
 
+    socket_->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    socket_->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+    socket_->setReadBufferSize(64 * 1024);
+
     connect(socket_, &QTcpSocket::connected, this, &LanSessionManager::handleSocketConnected);
     connect(socket_, &QTcpSocket::readyRead, this, &LanSessionManager::handleSocketReadyRead);
     connect(socket_, &QTcpSocket::disconnected, this, &LanSessionManager::handleSocketDisconnected);
@@ -384,9 +436,13 @@ void LanSessionManager::resetSession(LanRole role, LanSessionState state) {
     pendingPingToken_ = 0;
     pendingPingStartedMs_ = 0;
     outgoingCombatSequence_ = 0;
+    lastCombatInputSentMs_ = 0;
+    lastCombatInputBits_ = 0;
+    lastCombatStateSentMs_ = 0;
     combatBridgeActive_ = false;
     latestRemoteCombatInput_ = LanCombatInputFrame();
     latestCombatState_ = LanCombatState();
+    lastPublishedCombatState_ = LanCombatState();
 
     if (server_->isListening()) {
         server_->close();

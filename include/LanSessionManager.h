@@ -80,9 +80,13 @@ private:
     qint64 pendingPingToken_;
     qint64 pendingPingStartedMs_;
     quint32 outgoingCombatSequence_;
+    qint64 lastCombatInputSentMs_;
+    quint8 lastCombatInputBits_;
+    qint64 lastCombatStateSentMs_;
     bool combatBridgeActive_;
     LanCombatInputFrame latestRemoteCombatInput_;
     LanCombatState latestCombatState_;
+    LanCombatState lastPublishedCombatState_;
     LanSessionSnapshot snapshot_;
 };
 

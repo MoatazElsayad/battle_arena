@@ -70,6 +70,7 @@ private:
     void updateRemoteLanMovement(double dt, quint8 remoteInputBits);
     void applyGuestCombatState(const LanCombatState& state);
     void pushHostCombatState(bool finished);
+    bool isLocalLanWinner(LanCombatWinner winner) const;
     void tryRemoteLanAttack(AnimationState attackState);
     void tryRemoteLanHeal();
     void applyCombatantStats(const LanCombatantStats& localStats,
@@ -185,6 +186,8 @@ private:
     bool lanBridgeActive_;
     bool lanHostAuthority_;
     bool lanGuestStateSeen_;
+    LanCombatWinner lanResolvedWinner_;
+    quint8 lastPredictedLocalLanInputBits_;
     quint8 lastSentLanInputBits_;
     quint8 lastRemoteLanInputBits_;
     quint32 lanStateTick_;

@@ -89,6 +89,7 @@ QString resolveAssetPath(const QString& relativePath) {
 int main(int argc, char *argv[]) {
     // WSL/mesa environments can fail EGL/ZINK probing and crash on window creation.
     // Force a stable software stack before QApplication is constructed.
+#if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORM", "xcb");
     QApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
     qputenv("QT_OPENGL", "software");
@@ -96,6 +97,7 @@ int main(int argc, char *argv[]) {
     qputenv("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe");
     qputenv("GALLIUM_DRIVER", "llvmpipe");
     qputenv("QT_XCB_FORCE_SOFTWARE_OPENGL", "1");
+#endif
 
     QApplication app(argc, argv);
     const QCursor visibleCursor = createVisibleArrowCursor();

@@ -470,6 +470,8 @@ BattleWidget::BattleWidget(QWidget *parent)
       lanBridgeActive_(false),
       lanHostAuthority_(false),
       lanGuestStateSeen_(false),
+      lanResolvedWinner_(LanCombatWinner::NONE),
+      lastPredictedLocalLanInputBits_(0),
       lastSentLanInputBits_(0),
       lastRemoteLanInputBits_(0),
       lanStateTick_(0),
@@ -695,6 +697,8 @@ void BattleWidget::startBattle() {
     levelTransitionStartKingX_ = 0.0;
     duelRemoteScore_ = 0;
     lanGuestStateSeen_ = false;
+    lanResolvedWinner_ = LanCombatWinner::NONE;
+    lastPredictedLocalLanInputBits_ = 0;
     lastSentLanInputBits_ = 0;
     lastRemoteLanInputBits_ = 0;
     lanStateTick_ = 0;
@@ -932,6 +936,22 @@ double BattleWidget::mirrorArenaX(double x) const {
     return width() - x;
 }
 
+bool BattleWidget::isLocalLanWinner(LanCombatWinner winner) const {
+    if (winner == LanCombatWinner::NONE) {
+        return false;
+    }
+
+    if (lanHostAuthority_) {
+        return winner == LanCombatWinner::HOST;
+    }
+
+    if (lanSessionManager_ && lanSessionManager_->snapshot().localRole == LanRole::GUEST) {
+        return winner == LanCombatWinner::GUEST;
+    }
+
+    return false;
+}
+
 void BattleWidget::applyCombatantStats(const LanCombatantStats& localStats,
                                        const LanCombatantStats& enemyStats,
                                        bool localVictory,
@@ -973,8 +993,10 @@ void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
         playerX_ = guestTargetX;
         enemyX_ = hostTargetX;
     } else {
-        playerX_ += (guestTargetX - playerX_) * 0.38;
-        enemyX_ += (hostTargetX - enemyX_) * 0.38;
+        const bool localMovementActive = movingLeft_ != movingRight_;
+        const double localBlend = localMovementActive ? 0.16 : 0.38;
+        playerX_ += (guestTargetX - playerX_) * localBlend;
+        enemyX_ += (hostTargetX - enemyX_) * 0.42;
     }
     score_ = state.guestStats.score;
     duelRemoteScore_ = state.hostStats.score;
@@ -988,7 +1010,13 @@ void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
 
     if (playerAnimChar_) {
         playerAnimChar_->setFacingLeft(!state.guestFacingLeft);
-        playerAnimChar_->setAnimationState(state.guestAnimation);
+        const bool forceAuthoritativeLocalAnim =
+            (!movingLeft_ && !movingRight_ && !attackPressed_ && !healPressed_) ||
+            state.guestAnimation == AnimationState::HURT ||
+            state.guestAnimation == AnimationState::DEATH;
+        if (forceAuthoritativeLocalAnim) {
+            playerAnimChar_->setAnimationState(state.guestAnimation);
+        }
     }
     if (enemyAnimChar_) {
         enemyAnimChar_->setFacingLeft(!state.hostFacingLeft);
@@ -1003,8 +1031,8 @@ void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
         arcenProjectileX_ = guestProjectileTargetX;
         arcenProjectileY_ = state.guestProjectileY;
     } else {
-        arcenProjectileX_ += (guestProjectileTargetX - arcenProjectileX_) * 0.52;
-        arcenProjectileY_ += (state.guestProjectileY - arcenProjectileY_) * 0.52;
+        arcenProjectileX_ += (guestProjectileTargetX - arcenProjectileX_) * 0.32;
+        arcenProjectileY_ += (state.guestProjectileY - arcenProjectileY_) * 0.32;
     }
     arcenProjectileFrame_ = state.guestProjectileFrame;
 
@@ -1018,8 +1046,8 @@ void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
         enemyProjectileX_ = hostProjectileTargetX;
         enemyProjectileY_ = state.hostProjectileY;
     } else {
-        enemyProjectileX_ += (hostProjectileTargetX - enemyProjectileX_) * 0.52;
-        enemyProjectileY_ += (state.hostProjectileY - enemyProjectileY_) * 0.52;
+        enemyProjectileX_ += (hostProjectileTargetX - enemyProjectileX_) * 0.44;
+        enemyProjectileY_ += (state.hostProjectileY - enemyProjectileY_) * 0.44;
     }
     enemyProjectileFrame_ = state.hostProjectileFrame;
 
@@ -1035,6 +1063,10 @@ void BattleWidget::applyGuestCombatState(const LanCombatState& state) {
                         state.winner == LanCombatWinner::GUEST,
                         state.battleDurationSeconds,
                         state.guestStats.score);
+
+    if (state.winner != LanCombatWinner::NONE) {
+        lanResolvedWinner_ = state.winner;
+    }
 }
 
 void BattleWidget::pushHostCombatState(bool finished) {
@@ -1103,6 +1135,9 @@ void BattleWidget::pushHostCombatState(bool finished) {
     state.guestStats.misses = remoteBattleReport_.playerMisses;
     state.guestStats.projectilesFired = remoteBattleReport_.projectilesFired;
     state.guestStats.projectilesHit = remoteBattleReport_.projectilesHit;
+    if (state.winner != LanCombatWinner::NONE) {
+        lanResolvedWinner_ = state.winner;
+    }
     lanSessionManager_->publishCombatState(state);
 }
 
@@ -1135,8 +1170,9 @@ void BattleWidget::tryRemoteLanHeal() {
         return;
     }
 
+    const Player *player = gameManager_->getPlayer();
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
-    if (!enemy) {
+    if (!player || !player->isAlive() || !enemy || !enemy->isAlive()) {
         return;
     }
 
@@ -1155,7 +1191,7 @@ void BattleWidget::tryRemoteLanAttack(AnimationState attackState) {
 
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
-    if (!player || !enemy) {
+    if (!player || !enemy || !player->isAlive() || !enemy->isAlive()) {
         return;
     }
 
@@ -1253,7 +1289,9 @@ ChronicleBattleReport BattleWidget::levelBattleReport() const {
         report.completedLevel = gameManager_->getCurrentLevel();
         report.totalLevels = gameManager_->getTotalLevels();
         report.currentScore = gameManager_->isLanDuel() ? score_ : gameManager_->getCurrentScore();
-        report.victory = player && player->isAlive() && enemy && !enemy->isAlive();
+        report.victory = gameManager_->isLanDuel() && lanResolvedWinner_ != LanCombatWinner::NONE
+            ? isLocalLanWinner(lanResolvedWinner_)
+            : (player && player->isAlive() && enemy && !enemy->isAlive());
         report.campaignComplete = gameManager_->hasCompletedCampaign();
     }
     report.battleDurationSeconds = levelClock_.isValid() ? levelClock_.elapsed() / 1000.0 : report.battleDurationSeconds;
@@ -1792,8 +1830,8 @@ void BattleWidget::advanceFrame() {
     if (!battleActive_) return;
 
     if (lanBridgeActive_ && !lanHostAuthority_) {
+        quint8 inputBits = currentLanInputBits();
         if (lanSessionManager_) {
-            const quint8 inputBits = currentLanInputBits();
             lastSentLanInputBits_ = inputBits;
             lanSessionManager_->sendCombatInput(inputBits);
 
@@ -1802,6 +1840,66 @@ void BattleWidget::advanceFrame() {
                 applyGuestCombatState(state);
             }
         }
+
+        if (introLockTime_ <= 0.0) {
+            updatePlayerMovement(dt);
+            if (playerAnimChar_) {
+                playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
+            }
+            if (enemyAnimChar_) {
+                enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+            }
+
+            const quint8 pressedThisFrame = static_cast<quint8>(inputBits & ~lastPredictedLocalLanInputBits_);
+            if (player->isAlive() && enemy->isAlive()) {
+                if ((pressedThisFrame & LanInputHeal) != 0 && healCooldown_ <= 0.0) {
+                    tryPlayerHeal();
+                }
+
+                AnimationState predictedAttackState = AnimationState::IDLE;
+                if ((pressedThisFrame & LanInputAttack1) != 0) {
+                    predictedAttackState = AnimationState::ATTACK1;
+                } else if ((pressedThisFrame & LanInputAttack2) != 0) {
+                    predictedAttackState = AnimationState::ATTACK2;
+                } else if ((pressedThisFrame & LanInputAttack3) != 0) {
+                    predictedAttackState = AnimationState::ATTACK3;
+                }
+
+                if (predictedAttackState != AnimationState::IDLE && playerCooldown_ <= 0.0) {
+                    if (playerAnimChar_) {
+                        playerAnimChar_->setAnimationState(predictedAttackState);
+                    }
+                    if (soundManager_) {
+                        soundManager_->playAttack();
+                    }
+
+                    const PlayerType playerType = gameManager_->getSelectedPlayerType();
+                    if (playerType == PlayerType::ARCEN && !arcenProjectileActive_) {
+                        int damage = player->calculateDamage();
+                        if (predictedAttackState == AnimationState::ATTACK2) {
+                            damage = static_cast<int>(damage * 1.2);
+                        } else if (predictedAttackState == AnimationState::ATTACK3) {
+                            damage = static_cast<int>(damage * 1.35);
+                        }
+                        spawnArcenProjectile(damage);
+                        statusMessage_ = "Arrow fired!";
+                        statusDisplayTime_ = 0.7;
+                    } else if (playerType == PlayerType::ARCEN) {
+                        statusMessage_ = "Arrow already in flight";
+                        statusDisplayTime_ = 0.7;
+                    } else {
+                        statusMessage_ = "Strike committed";
+                        statusDisplayTime_ = 0.55;
+                    }
+
+                    playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
+                }
+            }
+
+            updateArcenProjectile(dt);
+            updateEnemyProjectile(dt);
+        }
+        lastPredictedLocalLanInputBits_ = inputBits;
 
         const Player *p = gameManager_->getPlayer();
         const Enemy *e = gameManager_->getCurrentEnemy();
@@ -1936,21 +2034,23 @@ void BattleWidget::advanceFrame() {
         attackPressed_ = false; // One attack per press
     }
 
-    if (lanBridgeActive_ && lanHostAuthority_) {
-        const quint8 pressedThisFrame = static_cast<quint8>(remoteInputBits & ~lastRemoteLanInputBits_);
-        if ((pressedThisFrame & LanInputHeal) != 0) {
-            tryRemoteLanHeal();
+    if (player->isAlive() && enemy->isAlive()) {
+        if (lanBridgeActive_ && lanHostAuthority_) {
+            const quint8 pressedThisFrame = static_cast<quint8>(remoteInputBits & ~lastRemoteLanInputBits_);
+            if ((pressedThisFrame & LanInputHeal) != 0) {
+                tryRemoteLanHeal();
+            }
+            if ((pressedThisFrame & LanInputAttack1) != 0) {
+                tryRemoteLanAttack(AnimationState::ATTACK1);
+            } else if ((pressedThisFrame & LanInputAttack2) != 0) {
+                tryRemoteLanAttack(AnimationState::ATTACK2);
+            } else if ((pressedThisFrame & LanInputAttack3) != 0) {
+                tryRemoteLanAttack(AnimationState::ATTACK3);
+            }
+            lastRemoteLanInputBits_ = remoteInputBits;
+        } else if (enemyCooldown_ <= 0.0) {
+            tryEnemyAttack(dt);
         }
-        if ((pressedThisFrame & LanInputAttack1) != 0) {
-            tryRemoteLanAttack(AnimationState::ATTACK1);
-        } else if ((pressedThisFrame & LanInputAttack2) != 0) {
-            tryRemoteLanAttack(AnimationState::ATTACK2);
-        } else if ((pressedThisFrame & LanInputAttack3) != 0) {
-            tryRemoteLanAttack(AnimationState::ATTACK3);
-        }
-        lastRemoteLanInputBits_ = remoteInputBits;
-    } else if (enemyCooldown_ <= 0.0) {
-        tryEnemyAttack(dt);
     }
 
     updateArcenProjectile(dt);
@@ -2108,7 +2208,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
     
-    if (!player || !enemy) return;
+    if (!player || !enemy || !player->isAlive() || !enemy->isAlive()) return;
     
     // Trigger player attack animation regardless of distance
     if (playerAnimChar_) {
@@ -2193,7 +2293,7 @@ void BattleWidget::tryEnemyAttack(double dt) {
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
     
-    if (!player || !enemy) return;
+    if (!player || !enemy || !player->isAlive() || !enemy->isAlive()) return;
     
     const EnemyType enemyType = enemy->getEnemyType();
     double distToPlayer = std::abs(playerX_ - enemyX_);
@@ -2839,6 +2939,14 @@ void BattleWidget::updateArcenProjectile(double dt) {
     const double dir = arcenProjectileFacingRight_ ? 1.0 : -1.0;
     arcenProjectileX_ += dir * arcenProjectileSpeed_ * dt;
 
+    if (lanBridgeActive_ && !lanHostAuthority_) {
+        if (arcenProjectileX_ < ARENA_LEFT_X || arcenProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
+            arcenProjectileActive_ = false;
+            arcenProjectileDamage_ = 0;
+        }
+        return;
+    }
+
     if (arcenProjectileX_ < ARENA_LEFT_X || arcenProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
         arcenProjectileActive_ = false;
         ++levelBattleReport_.playerMisses;
@@ -2850,9 +2958,17 @@ void BattleWidget::updateArcenProjectile(double dt) {
         return;
     }
 
+    const Player *player = gameManager_->getPlayer();
+    if (gameManager_->isLanDuel() && (!player || !player->isAlive())) {
+        arcenProjectileActive_ = false;
+        arcenProjectileDamage_ = 0;
+        return;
+    }
+
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
     if (!enemy || !enemy->isAlive()) {
         arcenProjectileActive_ = false;
+        arcenProjectileDamage_ = 0;
         return;
     }
 
@@ -2953,7 +3069,21 @@ void BattleWidget::updateEnemyProjectile(double dt) {
     const double dir = enemyProjectileFacingRight_ ? 1.0 : -1.0;
     enemyProjectileX_ += dir * enemyProjectileSpeed_ * dt;
 
+    if (lanBridgeActive_ && !lanHostAuthority_) {
+        if (enemyProjectileX_ < ARENA_LEFT_X || enemyProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
+            enemyProjectileActive_ = false;
+            enemyProjectileExploding_ = false;
+        }
+        return;
+    }
+
+    Enemy *enemy = gameManager_ ? const_cast<Enemy*>(gameManager_->getCurrentEnemy()) : nullptr;
     Player *player = gameManager_ ? const_cast<Player*>(gameManager_->getPlayer()) : nullptr;
+    if (gameManager_ && gameManager_->isLanDuel() && (!enemy || !enemy->isAlive())) {
+        enemyProjectileActive_ = false;
+        enemyProjectileExploding_ = false;
+        return;
+    }
     if (!player || !player->isAlive()) {
         enemyProjectileActive_ = false;
         return;
@@ -3328,7 +3458,7 @@ void BattleWidget::tryPlayerHeal() {
     if (healCooldown_ > 0.0) return;
     
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
-    if (!player) return;
+    if (!player || !player->isAlive()) return;
     
     player->takeDamage(-25); // Heal 25 HP
     healCooldown_ = 5.0; // 5 second cooldown

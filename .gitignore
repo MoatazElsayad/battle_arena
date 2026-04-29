@@ -19,3 +19,6 @@ Makefile
 *.ninja
 *.ninja_deps
 *.ninja_log
+
+build-win-mingw/
+qt-online-installer.exe
