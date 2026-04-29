@@ -928,6 +928,9 @@ QWidget* MainWindow::createSetupPage() {
 
 QWidget* MainWindow::createLanArenaPage() {
     lanSessionManager_ = new LanSessionManager(this);
+    if (gamePage_) {
+        gamePage_->setLanSessionManager(lanSessionManager_);
+    }
 
     auto* page = new LanArenaPage(this);
     page->setSessionManager(lanSessionManager_);
@@ -1025,6 +1028,7 @@ QWidget* MainWindow::createBattlePage() {
     // Reuse the same battle page for duel mode once the realtime duel controller is attached.
     gamePage_ = new GamePage();
     gamePage_->setGameManager(gameManager_);
+    gamePage_->setLanSessionManager(lanSessionManager_);
     gamePage_->setSoundManager(soundManager_);
     connect(gamePage_, &GamePage::battleFinished, this, &MainWindow::handleBattleFinished);
     connect(gamePage_, &GamePage::chronicleRequested, this, &MainWindow::handleChronicleRequested);
