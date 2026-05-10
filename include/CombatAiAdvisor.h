@@ -1,24 +1,35 @@
-// Gameplay-facing AI helper.
-// This file should:
-// - receive CombatSnapshot
-// - build a short prompt
-// - call OpenRouterClient
-// - convert the reply into AiRecommendation
-// Suggested functions:
-// - constructor
-// - buildSystemPrompt()
-// - buildUserPrompt(...)
-// - requestRecommendation(...)
-// - parseRecommendation(...)
-// - fallbackRecommendation(...)
 
-
-#include <iostream>
 #include <OpenRouterClient.h>
 #include <Enums.h>
-using namespace std;
 
-QString build_prompt(const CombatSnapshot& snapshot);
-void CombatAiAdvisor::requestAdvice(const CombatSnapshot& snapshot);
-void CombatAiAdvisor::applyRecommendation(const AiRecommendation& recommendation);
-AiRecommendaiton CombatAiAdvisor::ParseResponse(QString content);
+Class CombatAiAdvisor : Public QObject
+{
+  Q_OBJECT
+
+
+  Public:
+    explicit CombatAiAdvisor(QObject *parent = nullptr);
+    void requestRecommendation(const CombatSnapshot& snapshot);
+
+    AiRecommendation fallbackRecommendation(
+        AiRecommendation fallbackRecommendation(
+        const CombatSnapshot& snapshot,
+        const QString& reason = QString()
+) const;
+    )
+
+    
+  Signals:
+ void recommendationReady(const AiRecommendation& recommendation);
+  Private:
+  QString buildSystemPrompt() const;
+  QString buildUserPrompt(const CombatSnapshot& snapshot) const;
+  AiRecommendation parseRecommendation(
+    const QByteArray& response,
+    const CombatSnapshot& snapshot
+) const;
+
+private:
+ChronicleOpenRouterClient *client_;
+};
+

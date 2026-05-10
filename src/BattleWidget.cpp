@@ -20,6 +20,21 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
+#include <CombatAiAdvisor.h>
+
+BattleWidget::BattleWidget(QWidget *parent)
+{
+    combatAiAdvisor_ = new CombatAiAdvisor(this);
+    connect(combatAiAdvisor_, &CombatAiAdvisor::recommendationReady,
+        this, [this](const AiRecommendation& recommendation) {
+    activeAiRecommendation_ = recommendation;
+    hasActiveAiRecommendation_ = true;
+    aiRecommendationTimeLeft_ = recommendation.durationMs / 1000.0;
+    aiRecommendationPending_ = false;
+    aiRecommendationRequestCooldown_ = 5.0;
+}
+
+}
 
 namespace {
 QString resolveAssetPath(const QString& relativePath) {

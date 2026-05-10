@@ -22,6 +22,8 @@ void OpenRouterClient::SendRequest(QString prompt, function<void(QString)> callb
     // Get API key from environment
     QByteArray apiKeyBa = qgetenv("OPENROUTER_API_KEY");
     QString apiKey = QString::fromUtf8(apiKeyBa);
+
+    
     if (apiKey.isEmpty()) {
         callback(QString("Error: OPENROUTER_API_KEY not set"));
         return;

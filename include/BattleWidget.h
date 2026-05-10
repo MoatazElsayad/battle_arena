@@ -9,6 +9,22 @@
 #include "ChronicleAiTypes.h"
 #include "Enums.h"
 #include "NetTypes.h"
+#include CombatAiTypes.h"
+ 
+class CombatAiAdvisor;
+
+class Battlewidget : public QWidget
+
+{
+Q_OBJECT
+private:
+CombatAiAdvisor *combatAiAdvisor_;
+AiRecommendation activeAiRecommendation_;
+bool hasActiveAiRecommendation_;
+bool aiRecommendationPending_;
+double aiRecommendationTimeLeft_;
+double aiRecommendationRequestCooldown_;
+};
 
 class GameManager;
 class LanSessionManager;
