@@ -43,21 +43,6 @@ protected:
     }
 };
 
-QCursor createVisibleArrowCursor() {
-    QPixmap pixmap(28, 28);
-    // Keep the cursor fully opaque to avoid transparency issues on some X11/WSL setups.
-    pixmap.fill(QColor(255, 235, 59));
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    painter.setPen(QPen(QColor(20, 20, 20), 3));
-    painter.drawLine(2, 2, 25, 25);
-    painter.drawLine(25, 2, 2, 25);
-    painter.drawRect(1, 1, 25, 25);
-
-    return QCursor(pixmap, 1, 1);
-}
 QString resolveAssetPath(const QString& relativePath) {
     if (relativePath.isEmpty()) {
         return QString();
@@ -100,8 +85,7 @@ int main(int argc, char *argv[]) {
 #endif
 
     QApplication app(argc, argv);
-    const QCursor visibleCursor = createVisibleArrowCursor();
-    QApplication::setOverrideCursor(visibleCursor);
+    QApplication::setOverrideCursor(QCursor(Qt::BlankCursor));
     const QString appIconPath = resolveAssetPath(QStringLiteral("assets/icons/shield.png"));
     if (!appIconPath.isEmpty()) {
         const QIcon appIcon(appIconPath);
@@ -117,7 +101,7 @@ int main(int argc, char *argv[]) {
             window.setWindowIcon(appIcon);
         }
     }
-    window.show();
+    window.showFullScreen();
 
     auto* softwareCursor = new SoftwareCursorOverlay(&window);
 

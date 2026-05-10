@@ -10,6 +10,8 @@ QString packetNameForType(LanPacketType type) {
             return QStringLiteral("hello");
         case LanPacketType::CHARACTER_SELECT:
             return QStringLiteral("character_select");
+        case LanPacketType::ARENA_SELECT:
+            return QStringLiteral("arena_select");
         case LanPacketType::READY_STATE:
             return QStringLiteral("ready_state");
         case LanPacketType::START_MATCH:
@@ -46,6 +48,10 @@ bool lanPacketTypeFromWireName(const QString& name, LanPacketType* outType) {
     }
     if (normalized == QStringLiteral("character_select")) {
         *outType = LanPacketType::CHARACTER_SELECT;
+        return true;
+    }
+    if (normalized == QStringLiteral("arena_select")) {
+        *outType = LanPacketType::ARENA_SELECT;
         return true;
     }
     if (normalized == QStringLiteral("ready_state")) {

@@ -2,6 +2,7 @@
 
 #include "MainWindow.h"
 #include "BattleWidget.h"
+#include "CombatHighlightTypes.h"
 #include "DatabaseManager.h"
 #include "GameManager.h"
 #include "GamePage.h"
@@ -18,6 +19,7 @@
 #include "SoundManager.h"
 #include "ExhibitionSetupPage.h"
 #include "WebsiteSyncClient.h"
+#include "FighterAiProfile.h"
 #include "InputHandler.h"
 #include "Player.h"
 #include "Enemy.h"
@@ -44,17 +46,26 @@
 #include <QFileInfo>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
+#include <QKeySequence>
+#include <QShortcut>
 #include <QTimer>
 #include <QVariantAnimation>
+#include <algorithm>
 
 namespace {
 class CoverBackgroundWidget : public QWidget {
 public:
     explicit CoverBackgroundWidget(const QString& imagePath, QWidget* parent = nullptr)
         : QWidget(parent),
-          background_(imagePath) {
+          background_(imagePath),
+          overlayColor_(Qt::transparent) {
         setAttribute(Qt::WA_OpaquePaintEvent, true);
         setAutoFillBackground(false);
+    }
+
+    void setOverlayColor(const QColor& color) {
+        overlayColor_ = color;
+        update();
     }
 
 protected:
@@ -76,10 +87,14 @@ protected:
                                targetSize.width(),
                                targetSize.height());
         painter.drawPixmap(rect(), scaled, sourceRect);
+        if (overlayColor_.alpha() > 0) {
+            painter.fillRect(rect(), overlayColor_);
+        }
     }
 
 private:
     QPixmap background_;
+    QColor overlayColor_;
 };
 
 QString resolveAssetPath(const QString& relativePath) {
@@ -136,9 +151,9 @@ QString characterImagePath(PlayerType type) {
 QString playerSpecialMoveText(PlayerType type) {
     switch (type) {
         case PlayerType::ARCEN:
-            return "Long-range bow pressure with precise ranged control.";
+            return "Long-range arrow pressure with lighter single-hit damage.";
         case PlayerType::DEMON_SLAYER:
-            return "Heavy blade rushdown with clean melee finishers.";
+            return "Infernal blade style with ranged fireball pressure.";
         case PlayerType::FANTASY_WARRIOR:
             return "Balanced sword stance with steady frontline pressure.";
         case PlayerType::HUNTRESS:
@@ -212,9 +227,10 @@ QLabel* createLogoLabel(QWidget* parent, int maxHeight = 140) {
     const QPixmap logo = transparentLogoPixmap(maxHeight);
     if (!logo.isNull()) {
         label->setPixmap(logo);
+        label->setStyleSheet(QStringLiteral("QLabel { background: transparent; border: none; }"));
     } else {
         label->setText("GLADIATORS");
-        label->setStyleSheet("color:#F2C86B; font:900 34px 'Segoe UI'; letter-spacing:2px;");
+        label->setStyleSheet("QLabel { background: transparent; border: none; color:#F2C86B; font:900 34px 'Segoe UI'; letter-spacing:2px; }");
     }
     return label;
 }
@@ -222,6 +238,7 @@ QLabel* createLogoLabel(QWidget* parent, int maxHeight = 140) {
 QString authPageStyle() {
     return QString(
         "QWidget { background-color: #110D0B; color: #F5E6D3; }"
+        "QLabel { background: transparent; }"
         "QFrame#authHero {"
         " background:qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(46,31,20,0.92), stop:1 rgba(24,17,13,0.96));"
         " border:1px solid rgba(212,160,23,0.20);"
@@ -318,6 +335,34 @@ PlayerType playerTypeFromName(const QString& value) {
     return PlayerType::KNIGHT;
 }
 
+std::vector<PlayerType> rosterByUnlockTier() {
+    return {
+        PlayerType::KNIGHT,
+        PlayerType::MEDIEVAL_WARRIOR,
+        PlayerType::MARTIAL_HERO,
+        PlayerType::MARTIAL,
+        PlayerType::FANTASY_WARRIOR,
+        PlayerType::DEMON_SLAYER,
+        PlayerType::HUNTRESS,
+        PlayerType::ARCEN,
+        PlayerType::WIZARD
+    };
+}
+
+int rankTierForName(const QString& rankName) {
+    const QString rank = rankName.trimmed().toLower();
+    if (rank == QStringLiteral("squire")) return 2;
+    if (rank == QStringLiteral("gladiator")) return 3;
+    if (rank == QStringLiteral("knight")) return 4;
+    if (rank == QStringLiteral("elite knight")) return 5;
+    if (rank == QStringLiteral("warlord")) return 6;
+    if (rank == QStringLiteral("champion")) return 7;
+    if (rank == QStringLiteral("high champion")) return 8;
+    if (rank == QStringLiteral("legend")) return 9;
+    if (rank == QStringLiteral("immortal")) return 10;
+    return 1;
+}
+
 EnemyType enemyTypeFromName(const QString& value) {
     const QString key = value.trimmed().toCaseFolded();
     if (key == QStringLiteral("fire worm")) return EnemyType::FIRE_WORM;
@@ -382,10 +427,15 @@ MainWindow::MainWindow(QWidget *parent)
     currentCharacterIndex_(0),
       selectedPlayerType_(PlayerType::KNIGHT),
       saveKingSceneAction_(SaveKingSceneAction::None),
-      chronicleCampaignComplete_(false) {
-    setWindowTitle("Battle Arena");
-    setWindowState(Qt::WindowMaximized);
+      chronicleCampaignComplete_(false),
+      pendingRankUpgrade_(false) {
+    setWindowTitle("Battle Arena - " + currentLobbyUsername_);  
+    setWindowState(Qt::WindowFullScreen);
     setStyleSheet("QMainWindow { background-color: #3D2817; color: #F5E6D3; }");
+
+    auto* fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    fullScreenShortcut->setContext(Qt::ApplicationShortcut);
+    connect(fullScreenShortcut, &QShortcut::activated, this, &MainWindow::toggleFullScreen);
     
     // Initialize managers
     databaseManager_ = new DatabaseManager();
@@ -448,10 +498,78 @@ void MainWindow::setLoggedInUsername(const QString &username) {
     }
 }
 
+std::vector<PlayerType> MainWindow::unlockedPlayerTypesForCurrentRank() const {
+    QString rank = QStringLiteral("Wanderer");
+    int score = 0;
+    if (profileLobbyWidget_) {
+        const ProfileLobbyWidget::UserProfile profile = profileLobbyWidget_->userProfile();
+        score = profile.score;
+        rank = profile.badge.trimmed().isEmpty()
+            ? QString::fromStdString(GameManager::calculateRankFromScore(score))
+            : profile.badge.trimmed();
+    }
+
+    const int tier = rankTierForName(rank);
+    std::vector<PlayerType> unlocked;
+    for (PlayerType type : rosterByUnlockTier()) {
+        if (fighterAiProfileFor(type).unlockTier <= tier) {
+            unlocked.push_back(type);
+        }
+    }
+
+    if (unlocked.empty()) {
+        unlocked.push_back(PlayerType::KNIGHT);
+    }
+    return unlocked;
+}
+
+bool MainWindow::isPlayerTypeUnlocked(PlayerType type) const {
+    const std::vector<PlayerType> unlocked = unlockedPlayerTypesForCurrentRank();
+    return std::find(unlocked.begin(), unlocked.end(), type) != unlocked.end();
+}
+
+void MainWindow::selectLobbyCharacter(PlayerType type) {
+    selectedPlayerType_ = type;
+    for (int i = 0; i < static_cast<int>(sortedPlayerTypes_.size()); ++i) {
+        if (sortedPlayerTypes_[static_cast<size_t>(i)] == selectedPlayerType_) {
+            currentCharacterIndex_ = i;
+            break;
+        }
+    }
+
+    ProfileLobbyWidget::Character updated;
+    updated.name = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
+    updated.imagePath = characterImagePath(selectedPlayerType_);
+    updated.specialMoves = playerSpecialMoveText(selectedPlayerType_);
+    if (profileLobbyWidget_) {
+        profileLobbyWidget_->setSelectedCharacter(updated);
+    }
+    if (lanArenaPage_) {
+        lanArenaPage_->setIdentity(currentLobbyUsername_, updated.name, selectedPlayerType_);
+    }
+}
+
+void MainWindow::toggleFullScreen() {
+    if (isFullScreen()) {
+        showMaximized();
+    } else {
+        showFullScreen();
+    }
+}
+
+void MainWindow::ensureFullScreen() {
+    if (!isFullScreen()) {
+        showFullScreen();
+    }
+}
+
 void MainWindow::buildUi() {
     // Create stacked widget to hold all pages
     stack_ = new QStackedWidget(this);
     setCentralWidget(stack_);
+    connect(stack_, &QStackedWidget::currentChanged, this, [this]() {
+        QTimer::singleShot(0, this, &MainWindow::ensureFullScreen);
+    });
 
     // Create the pages
     loginPage_ = createLoginPage();
@@ -557,14 +675,19 @@ void MainWindow::buildUi() {
     });
     connect(leaderboardPage_, &LeaderboardPage::backClicked, this, &MainWindow::showSetupPage);
     connect(settingsPage_, &SettingsPage::backClicked, this, &MainWindow::showSetupPage);
+    if (gameManager_ && settingsPage_) {
+        gameManager_->setDifficulty(settingsPage_->getDifficulty());
+    }
     connect(settingsPage_, &SettingsPage::settingsChanged, this,
-            [this](int musicVolume, int sfxVolume, DifficultyLevel) {
-                if (!soundManager_) {
-                    return;
+            [this](int musicVolume, int sfxVolume, DifficultyLevel difficulty) {
+                if (gameManager_) {
+                    gameManager_->setDifficulty(difficulty);
                 }
-                soundManager_->setMusicVolume(musicVolume);
-                soundManager_->setSoundVolume(sfxVolume);
-                soundManager_->playUIConfirm();
+                if (soundManager_) {
+                    soundManager_->setMusicVolume(musicVolume);
+                    soundManager_->setSoundVolume(sfxVolume);
+                    soundManager_->playUIConfirm();
+                }
             });
     connect(saveKingIntroPage_, &SaveKingIntroPage::sceneFinished, this, &MainWindow::handleSaveKingSceneFinished);
     connect(chroniclePage_, &LevelTransitionChroniclePage::continueRequested, this, &MainWindow::continueAfterChronicle);
@@ -574,7 +697,8 @@ void MainWindow::buildUi() {
 }
 
 QWidget* MainWindow::createLoginPage() {
-    QWidget *page = new QWidget();
+    auto* page = new CoverBackgroundWidget(resolveAssetPath(QStringLiteral("assets/backgrounds/intro.png")), this);
+    page->setOverlayColor(QColor(6, 4, 3, 142));
     page->setStyleSheet(authPageStyle());
 
     QVBoxLayout *layout = new QVBoxLayout(page);
@@ -634,63 +758,28 @@ QWidget* MainWindow::createLoginPage() {
 }
 
 QWidget* MainWindow::createRegistrationPage() {
-    QWidget *page = new QWidget();
+    auto* page = new CoverBackgroundWidget(resolveAssetPath(QStringLiteral("assets/backgrounds/intro.png")), this);
+    page->setOverlayColor(QColor(6, 4, 3, 142));
     page->setStyleSheet(authPageStyle());
 
-    QHBoxLayout *layout = new QHBoxLayout(page);
+    QVBoxLayout *layout = new QVBoxLayout(page);
     layout->setContentsMargins(42, 32, 42, 32);
-    layout->setSpacing(26);
+    layout->setSpacing(18);
+    layout->addStretch(1);
 
-    QFrame *hero = new QFrame(page);
-    hero->setObjectName("authHero");
-    QVBoxLayout *heroLayout = new QVBoxLayout(hero);
-    heroLayout->setContentsMargins(34, 34, 34, 34);
-    heroLayout->setSpacing(16);
-
-    QLabel *heroEyebrow = new QLabel("CREATE YOUR PROFILE", hero);
-    heroEyebrow->setObjectName("eyebrow");
-    heroLayout->addWidget(heroEyebrow);
-
-    heroLayout->addWidget(createLogoLabel(hero, 150), 0, Qt::AlignLeft);
-
-    QLabel *heroTitle = new QLabel("Build a new challenger and unlock the gates of the arena.", hero);
-    heroTitle->setObjectName("heroTitle");
-    heroTitle->setWordWrap(true);
-    heroLayout->addWidget(heroTitle);
-
-    QLabel *heroBody = new QLabel("Create your account to save your results, return to the lobby faster, and keep progressing through the enemy stages.", hero);
-    heroBody->setObjectName("heroBody");
-    heroBody->setWordWrap(true);
-    heroLayout->addWidget(heroBody);
-
-    QLabel *featureOne = new QLabel("Register once, then jump straight into the lobby", hero);
-    featureOne->setObjectName("featureChip");
-    heroLayout->addWidget(featureOne, 0, Qt::AlignLeft);
-
-    QLabel *featureTwo = new QLabel("Keep your identity and score attached to each run", hero);
-    featureTwo->setObjectName("featureChip");
-    heroLayout->addWidget(featureTwo, 0, Qt::AlignLeft);
-    heroLayout->addStretch(1);
-
-    layout->addWidget(hero, 5);
+    layout->addWidget(createLogoLabel(page, 235), 0, Qt::AlignHCenter);
 
     QFrame *panel = new QFrame(page);
     panel->setObjectName("authPanel");
-    panel->setMaximumWidth(520);
+    panel->setMaximumWidth(620);
     QVBoxLayout *panelLayout = new QVBoxLayout(panel);
-    panelLayout->setContentsMargins(30, 30, 30, 30);
-    panelLayout->setSpacing(14);
+    panelLayout->setContentsMargins(38, 34, 38, 34);
+    panelLayout->setSpacing(16);
 
-    QLabel *title = new QLabel("Registration", panel);
+    QLabel *title = new QLabel("Create Account", panel);
     title->setObjectName("panelTitle");
     title->setAlignment(Qt::AlignCenter);
     panelLayout->addWidget(title);
-
-    QLabel *body = new QLabel("Set up a quick profile and continue to login.", panel);
-    body->setObjectName("panelBody");
-    body->setWordWrap(true);
-    body->setAlignment(Qt::AlignCenter);
-    panelLayout->addWidget(body);
 
     regEmailEdit_ = new QLineEdit(panel);
     regEmailEdit_->setPlaceholderText("Email");
@@ -734,9 +823,9 @@ QWidget* MainWindow::createRegistrationPage() {
         showLoginPage();
     });
     panelLayout->addWidget(backButton);
-    panelLayout->addStretch(1);
 
-    layout->addWidget(panel, 4, Qt::AlignVCenter);
+    layout->addWidget(panel, 0, Qt::AlignHCenter);
+    layout->addStretch(1);
     return page;
 }
 
@@ -749,13 +838,13 @@ QWidget* MainWindow::createWelcomePage() {
     layout->setSpacing(0);
     layout->addStretch(1);
 
-    welcomeLogoLabel_ = createLogoLabel(page, 470);
+    welcomeLogoLabel_ = createLogoLabel(page, 360);
     auto *logoOpacity = new QGraphicsOpacityEffect(welcomeLogoLabel_);
-    logoOpacity->setOpacity(0.34);
+    logoOpacity->setOpacity(0.24);
     welcomeLogoLabel_->setGraphicsEffect(logoOpacity);
     welcomeLogoFadeAnimation_ = new QVariantAnimation(page);
-    welcomeLogoFadeAnimation_->setStartValue(0.34);
-    welcomeLogoFadeAnimation_->setEndValue(1.0);
+    welcomeLogoFadeAnimation_->setStartValue(0.24);
+    welcomeLogoFadeAnimation_->setEndValue(0.82);
     welcomeLogoFadeAnimation_->setDuration(1400);
     connect(welcomeLogoFadeAnimation_, &QVariantAnimation::valueChanged, page, [logoOpacity](const QVariant& value) {
         logoOpacity->setOpacity(value.toReal());
@@ -803,18 +892,18 @@ QWidget* MainWindow::createSetupPage() {
     // LAN Battle now routes into a real LAN session page instead of a placeholder alert.
     profileLobbyWidget_ = new ProfileLobbyWidget(this);
 
-    sortedPlayerTypes_ = InputHandler::getCharactersSortedByFeatures();
+    sortedPlayerTypes_ = rosterByUnlockTier();
     if (sortedPlayerTypes_.empty()) {
         sortedPlayerTypes_.push_back(PlayerType::KNIGHT);
     }
 
     currentCharacterIndex_ = 0;
-    selectedPlayerType_ = sortedPlayerTypes_[currentCharacterIndex_];
+    selectedPlayerType_ = PlayerType::KNIGHT;
 
     ProfileLobbyWidget::UserProfile profile;
     profile.username = currentLobbyUsername_;
     profile.score = 0;
-    profile.badge = "Rookie";
+    profile.badge = "Wanderer";
     profile.avatarPath = QString();
     profileLobbyWidget_->setUserProfile(profile);
 
@@ -860,17 +949,11 @@ QWidget* MainWindow::createSetupPage() {
         if (sortedPlayerTypes_.empty()) {
             return;
         }
-        currentCharacterIndex_ = (currentCharacterIndex_ + 1) % static_cast<int>(sortedPlayerTypes_.size());
-        selectedPlayerType_ = sortedPlayerTypes_[currentCharacterIndex_];
-
-        ProfileLobbyWidget::Character updated;
-        updated.name = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
-        updated.imagePath = characterImagePath(selectedPlayerType_);
-        updated.specialMoves = playerSpecialMoveText(selectedPlayerType_);
-        profileLobbyWidget_->setSelectedCharacter(updated);
-        if (lanArenaPage_) {
-            lanArenaPage_->setIdentity(currentLobbyUsername_, updated.name, selectedPlayerType_);
-        }
+        auto current = std::find(sortedPlayerTypes_.begin(), sortedPlayerTypes_.end(), selectedPlayerType_);
+        const int nextIndex = current == sortedPlayerTypes_.end()
+            ? 0
+            : (static_cast<int>(std::distance(sortedPlayerTypes_.begin(), current)) + 1) % static_cast<int>(sortedPlayerTypes_.size());
+        selectLobbyCharacter(sortedPlayerTypes_[static_cast<size_t>(nextIndex)]);
     });
 
     connect(profileLobbyWidget_, &ProfileLobbyWidget::usernameEditRequested, this, [this]() {
@@ -949,6 +1032,25 @@ QWidget* MainWindow::createLanArenaPage() {
         showSetupPage();
     });
 
+    connect(page, &LanArenaPage::localFighterChanged, this, [this](PlayerType fighterType, const QString& fighterName) {
+        selectedPlayerType_ = fighterType;
+        for (int i = 0; i < static_cast<int>(sortedPlayerTypes_.size()); ++i) {
+            if (sortedPlayerTypes_[static_cast<size_t>(i)] == fighterType) {
+                currentCharacterIndex_ = i;
+                break;
+            }
+        }
+
+        if (profileLobbyWidget_) {
+            ProfileLobbyWidget::Character updated;
+            updated.name = fighterName;
+            updated.imagePath = characterImagePath(fighterType);
+            updated.specialMoves = playerSpecialMoveText(fighterType);
+            profileLobbyWidget_->setSelectedCharacter(updated);
+            profileLobbyWidget_->setSelectedMode(QStringLiteral("LAN Battle"));
+        }
+    });
+
     connect(lanSessionManager_, &LanSessionManager::matchPrimed, this, [this](const LanSessionSnapshot& snapshot) {
         if (!gameManager_ || !gamePage_ || !battlePage_) {
             return;
@@ -994,7 +1096,7 @@ QWidget* MainWindow::createExhibitionSetupPage() {
     setup.opponentCategory = QStringLiteral("Player");
     setup.selectedOpponent = QStringLiteral("Arcen");
     setup.selectedArena = QStringLiteral("Colosseum");
-    page->applySessionState(currentLobbyUsername_, sortedPlayerTypes_, selectedPlayerType_, setup);
+    page->applySessionState(currentLobbyUsername_, unlockedPlayerTypesForCurrentRank(), selectedPlayerType_, setup);
 
     connect(page, &ExhibitionSetupPage::backRequested, this, [this]() {
         if (soundManager_) {
@@ -1104,7 +1206,9 @@ void MainWindow::showSetupPage() {
         saveKingIntroPage_->stopScene();
     }
     saveKingSceneAction_ = SaveKingSceneAction::None;
+    refreshProfile();
     stack_->setCurrentWidget(setupPage_);
+    showPendingRankUpgradeIfNeeded();
 }
 
 void MainWindow::showLanArenaPage() {
@@ -1131,6 +1235,9 @@ void MainWindow::showLanArenaPage() {
         playerName,
         QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_)),
         selectedPlayerType_);
+    if (profileLobbyWidget_) {
+        profileLobbyWidget_->setSelectedMode(QStringLiteral("LAN Battle"));
+    }
     stack_->setCurrentWidget(lanArenaPage_);
 }
 
@@ -1165,7 +1272,7 @@ void MainWindow::showExhibitionSetupPage() {
         setup.selectedOpponent = QStringLiteral("Arcen");
         setup.selectedArena = QStringLiteral("Colosseum");
     }
-    exhibitionSetupPage_->applySessionState(playerName, sortedPlayerTypes_, selectedPlayerType_, setup);
+    exhibitionSetupPage_->applySessionState(playerName, unlockedPlayerTypesForCurrentRank(), selectedPlayerType_, setup);
 
     saveKingSceneAction_ = SaveKingSceneAction::None;
     stack_->setCurrentWidget(exhibitionSetupPage_);
@@ -1295,6 +1402,10 @@ void MainWindow::attemptRegistration() {
         return;
     }
 
+    if (websiteSyncClient_ && websiteSyncClient_->isConfigured()) {
+        websiteSyncClient_->registerWebsiteAccount(email, username, password);
+    }
+
     loginUsernameEdit_->setText(username);
     loginPasswordEdit_->clear();
     regEmailEdit_->clear();
@@ -1318,6 +1429,10 @@ void MainWindow::startDemo() {
     }
     if (playerName.isEmpty()) {
         playerName = "Player_01";
+    }
+
+    if (!isPlayerTypeUnlocked(selectedPlayerType_)) {
+        selectLobbyCharacter(unlockedPlayerTypesForCurrentRank().front());
     }
 
     // Start the game with character type
@@ -1367,6 +1482,10 @@ void MainWindow::startDuelMode() {
         selectedPlayerType_ = exhibitionSetupPage_->selectedPlayerType();
     } else if (profileLobbyWidget_) {
         setup = profileLobbyWidget_->duelConfig();
+    }
+
+    if (!isPlayerTypeUnlocked(selectedPlayerType_)) {
+        selectLobbyCharacter(unlockedPlayerTypesForCurrentRank().front());
     }
 
     if (!setup.opponentMode.trimmed().isEmpty() || !setup.opponentCategory.trimmed().isEmpty()) {
@@ -1438,6 +1557,7 @@ void MainWindow::handleBattleFinished() {
         databaseManager_->saveResult(playerName.toStdString(), report.currentScore);
     }
 
+    uploadBattleHighlight(report, isDuelMatch);
     uploadBattleResult(report, isDuelMatch);
     showGameOverPage();
 }
@@ -1451,6 +1571,8 @@ void MainWindow::handleChronicleRequested(int completedLevel, bool campaignCompl
     const QString playerName = currentLobbyUsername_.trimmed().isEmpty()
         ? report.playerName
         : currentLobbyUsername_.trimmed();
+
+    uploadBattleHighlight(report, false);
 
     chronicleCampaignComplete_ = campaignComplete;
     chroniclePage_->configure(
@@ -1570,6 +1692,40 @@ void MainWindow::refreshProfile() {
     updateHighScores();
 }
 
+void MainWindow::showPendingRankUpgradeIfNeeded() {
+    if (!pendingRankUpgrade_ || !profileLobbyWidget_) {
+        return;
+    }
+
+    const QString previousRank = pendingRankUpgradeOld_;
+    const QString newRank = pendingRankUpgradeNew_;
+    const QString characterUnlockName = pendingCharacterUnlockName_;
+    const QString characterUnlockRank = pendingCharacterUnlockRank_;
+    const QString characterUnlockImagePath = pendingCharacterUnlockImagePath_;
+    pendingRankUpgrade_ = false;
+    pendingRankUpgradeOld_.clear();
+    pendingRankUpgradeNew_.clear();
+    pendingCharacterUnlockName_.clear();
+    pendingCharacterUnlockRank_.clear();
+    pendingCharacterUnlockImagePath_.clear();
+
+    QTimer::singleShot(180, profileLobbyWidget_, [widget = profileLobbyWidget_,
+                                                   previousRank,
+                                                   newRank,
+                                                   characterUnlockName,
+                                                   characterUnlockRank,
+                                                   characterUnlockImagePath]() {
+        if (widget) {
+            widget->showRankUpgradePopup(previousRank, newRank);
+            if (!characterUnlockName.trimmed().isEmpty()) {
+                widget->showCharacterUnlockPopup(characterUnlockName,
+                                                 characterUnlockRank,
+                                                 characterUnlockImagePath);
+            }
+        }
+    });
+}
+
 void MainWindow::refreshBattleView() {
     if (battleTitleLabel_) {
         battleTitleLabel_->setText(QString::fromStdString(gameManager_->getBattleTitle()));
@@ -1625,6 +1781,14 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
     payload.username = username;
     payload.characterType = playerTypeApiKey(selectedPlayerType_);
     payload.characterName = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
+    if (databaseManager_) {
+        const PlayerProgression progression = databaseManager_->loadProgressionForUser(username);
+        payload.totalScore = progression.totalScore;
+        payload.wins = progression.wins;
+        payload.losses = progression.losses;
+        payload.totalMatches = progression.totalMatches;
+        payload.rankLabel = QString::fromStdString(GameManager::calculateRankFromScore(progression.totalScore));
+    }
     payload.mode = !isDuelMatch
         ? QStringLiteral("save_the_king")
         : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel"));
@@ -1670,6 +1834,71 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
     websiteSyncClient_->uploadBattleResult(payload);
 }
 
+void MainWindow::uploadBattleHighlight(const ChronicleBattleReport& report, bool isDuelMatch) const {
+    if (!websiteSyncClient_ || !websiteSyncClient_->isConfigured() || !gamePage_ || (gameManager_ && gameManager_->isLanDuel())) {
+        return;
+    }
+
+    const std::optional<CombatHighlightSnapshot> highlight = gamePage_->lastBattleHighlight();
+    if (!highlight.has_value()) {
+        return;
+    }
+
+    QString username = report.playerName.trimmed();
+    if (username.isEmpty()) {
+        username = currentLobbyUsername_.trimmed();
+    }
+    if (profileLobbyWidget_ && username.isEmpty()) {
+        username = profileLobbyWidget_->userProfile().username.trimmed();
+    }
+    if (username.isEmpty()) {
+        return;
+    }
+
+    WebsiteHighlightUpload payload;
+    payload.username = username;
+    payload.mode = !isDuelMatch
+        ? QStringLiteral("save_the_king")
+        : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel"));
+    payload.characterType = playerTypeApiKey(selectedPlayerType_);
+    payload.characterName = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
+    payload.enemyType = report.defeatedEnemyType.trimmed();
+    payload.enemyName = report.defeatedEnemyName.trimmed();
+    payload.victory = report.victory;
+    payload.battleDurationSeconds = report.battleDurationSeconds;
+    payload.score = report.currentScore;
+    payload.attackType = highlightAttackTypeApiKey(highlight->attackType);
+    payload.damage = highlight->damage;
+    payload.wasProjectile = highlight->wasProjectile;
+    payload.wasFinisher = highlight->wasFinisher;
+    payload.highlightScore = highlight->highlightScore;
+    payload.playerHpBefore = highlight->playerHpBefore;
+    payload.playerHpAfter = highlight->playerHpAfter;
+    payload.playerMaxHp = highlight->playerMaxHp;
+    payload.enemyHpBefore = highlight->enemyHpBefore;
+    payload.enemyHpAfter = highlight->enemyHpAfter;
+    payload.levelIndex = report.completedLevel > 0 ? report.completedLevel : (gameManager_ ? gameManager_->getCurrentLevel() : 0);
+    payload.levelName = report.defeatedEnemyName.trimmed();
+    payload.capturedAtUtc = highlight->capturedAtUtc;
+    payload.imageBytes = highlight->imageBytes;
+    payload.imageMimeType = highlight->imageMimeType;
+
+    if (isDuelMatch) {
+        payload.levelIndex = 1;
+        payload.levelName = QStringLiteral("1v1 Exhibition");
+        if (gameManager_ && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE) {
+            payload.enemyType = playerTypeApiKey(gameManager_->getLanOpponentPlayerType());
+            if (payload.enemyName.isEmpty()) {
+                payload.enemyName = QString::fromStdString(InputHandler::playerTypeToDisplayName(gameManager_->getLanOpponentPlayerType()));
+            }
+        }
+    } else if (payload.levelName.isEmpty()) {
+        payload.levelName = QStringLiteral("Save the King");
+    }
+
+    websiteSyncClient_->uploadBattleHighlight(payload);
+}
+
 PlayerProgression MainWindow::applyBattleProgression(const QString& username,
                                                      const ChronicleBattleReport& report,
                                                      bool isDuelMatch,
@@ -1681,6 +1910,7 @@ PlayerProgression MainWindow::applyBattleProgression(const QString& username,
     PlayerProgression stats = username.trimmed().isEmpty()
         ? databaseManager_->loadProgression()
         : databaseManager_->loadProgressionForUser(username);
+    const QString previousRank = QString::fromStdString(GameManager::calculateRankFromScore(stats.totalScore));
 
     const bool fullClear = !isDuelMatch && report.victory && report.campaignComplete;
     const int stagesCleared = isDuelMatch
@@ -1699,7 +1929,37 @@ PlayerProgression MainWindow::applyBattleProgression(const QString& username,
         stats.losses += 1;
     }
     stats.currentRank = GameManager::calculateRankFromScore(stats.totalScore);
+    const QString newRank = QString::fromStdString(stats.currentRank);
     stats.currentRating = GameManager::calculateRatingFromStats(stats.wins, stats.totalMatches);
+
+    if (previousRank.compare(newRank, Qt::CaseInsensitive) != 0) {
+        if (!pendingRankUpgrade_) {
+            pendingRankUpgradeOld_ = previousRank;
+        }
+        pendingRankUpgradeNew_ = newRank;
+        pendingRankUpgrade_ = true;
+
+        const int previousTier = rankTierForName(previousRank);
+        const int newTier = rankTierForName(newRank);
+        QStringList unlockedNames;
+        PlayerType firstUnlockedType = PlayerType::KNIGHT;
+        bool hasUnlockedCharacter = false;
+        for (PlayerType type : rosterByUnlockTier()) {
+            const int unlockTier = fighterAiProfileFor(type).unlockTier;
+            if (unlockTier > previousTier && unlockTier <= newTier) {
+                if (!hasUnlockedCharacter) {
+                    firstUnlockedType = type;
+                    hasUnlockedCharacter = true;
+                }
+                unlockedNames.append(QString::fromStdString(InputHandler::playerTypeToDisplayName(type)));
+            }
+        }
+        if (!unlockedNames.isEmpty()) {
+            pendingCharacterUnlockName_ = unlockedNames.join(QStringLiteral(", "));
+            pendingCharacterUnlockRank_ = newRank;
+            pendingCharacterUnlockImagePath_ = characterImagePath(firstUnlockedType);
+        }
+    }
 
     QString errorMessage;
     if (username.trimmed().isEmpty()

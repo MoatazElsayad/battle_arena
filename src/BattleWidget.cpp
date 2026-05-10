@@ -7,6 +7,7 @@
 #include "AnimatedCharacter.h"
 #include "AnimationManager.h"
 #include "InputHandler.h"
+#include <QBuffer>
 #include <QPainter>
 #include <QPainterPath>
 #include <QLinearGradient>
@@ -60,6 +61,16 @@ QString playerProfilePath(PlayerType type) {
             return QStringLiteral("assets/players/Wizard/profile.png");
     }
     return QString();
+}
+
+int arcenArrowDamage(int baseDamage, AnimationState attackState) {
+    double multiplier = 0.85;
+    if (attackState == AnimationState::ATTACK2) {
+        multiplier = 1.00;
+    } else if (attackState == AnimationState::ATTACK3) {
+        multiplier = 1.15;
+    }
+    return qMax(1, static_cast<int>(baseDamage * multiplier));
 }
 
 QString enemyProfilePath(EnemyType type) {
@@ -376,6 +387,18 @@ QString enemyTypeLabel(EnemyType type) {
     return "Enemy";
 }
 
+HighlightAttackType highlightAttackTypeForAnimation(AnimationState state) {
+    switch (state) {
+        case AnimationState::ATTACK2:
+            return HighlightAttackType::Attack2;
+        case AnimationState::ATTACK3:
+            return HighlightAttackType::Attack3;
+        case AnimationState::ATTACK1:
+        default:
+            return HighlightAttackType::Attack1;
+    }
+}
+
 void drawGroundedSprite(QPainter& painter,
                         const QPixmap& sprite,
                         qreal centerX,
@@ -445,6 +468,7 @@ BattleWidget::BattleWidget(QWidget *parent)
     arcenProjectileSpeed_(900.0),
     arcenProjectileAnimTime_(0.0),
     arcenProjectileFrame_(0),
+    arcenProjectileAttackType_(HighlightAttackType::Attack1),
     enemyProjectileActive_(false),
     enemyProjectileExploding_(false),
     enemyProjectileUsesArcenArrow_(false),
@@ -475,7 +499,15 @@ BattleWidget::BattleWidget(QWidget *parent)
       lastSentLanInputBits_(0),
       lastRemoteLanInputBits_(0),
       lanStateTick_(0),
-      enemyHealCooldown_(0.0) {
+      enemyHealCooldown_(0.0),
+      enemyAiDecision_(),
+      enemyAiDecisionTimer_(0.0),
+      enemyAiPlayerAttackMemory_(0.0),
+      enemyAiPlayerMissMemory_(0.0),
+      enemyAiPlayerHealMemory_(0.0),
+      enemyAiEnemyDamageMemory_(0.0),
+      enemyAiLastEnemyHp_(0),
+      enemyAiLastAttack_(AnimationState::ATTACK1) {
     // Sound teammate:
     // Most combat SFX will be triggered from this class.
 
@@ -710,6 +742,14 @@ void BattleWidget::startBattle() {
     playerCooldown_ = 0.0;
     enemyCooldown_ = BATTLE_COUNTDOWN_DURATION + 0.45;
     enemyHealCooldown_ = 0.0;
+    enemyAiDecision_ = FighterAiDecision();
+    enemyAiDecisionTimer_ = 0.0;
+    enemyAiPlayerAttackMemory_ = 0.0;
+    enemyAiPlayerMissMemory_ = 0.0;
+    enemyAiPlayerHealMemory_ = 0.0;
+    enemyAiEnemyDamageMemory_ = 0.0;
+    enemyAiLastEnemyHp_ = 0;
+    enemyAiLastAttack_ = AnimationState::ATTACK1;
     const double arenaLeft = ARENA_LEFT_X + 70.0;
     const double arenaRight = qMax(arenaLeft + 220.0, double(width()) - ARENA_RIGHT_MARGIN - 70.0);
     playerX_ = arenaLeft;
@@ -737,6 +777,7 @@ void BattleWidget::startBattle() {
     }
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     if (enemy) {
+        enemyAiLastEnemyHp_ = enemy->getHealth();
         if (gameManager_->isLanDuel()) {
             statusMessage_ = QString("Arena Link Duel - %1 enters the arena!")
                                  .arg(QString::fromStdString(enemy->getName()));
@@ -759,6 +800,7 @@ void BattleWidget::startBattle() {
     enemyProjectileAnimTime_ = 0.0;
     enemyProjectileFrame_ = 0;
     enemyProjectileExplosionTime_ = 0.0;
+    arcenProjectileAttackType_ = HighlightAttackType::Attack1;
 
     const Player *player = gameManager_->getPlayer();
     levelBattleReport_ = ChronicleBattleReport();
@@ -806,6 +848,7 @@ void BattleWidget::startBattle() {
     remoteBattleReport_.currentScore = 0;
     remoteBattleReport_.victory = false;
     remoteBattleReport_.campaignComplete = false;
+    highlightTracker_.reset();
     
     elapsedTimer_.start();
     levelClock_.start();
@@ -1216,12 +1259,7 @@ void BattleWidget::tryRemoteLanAttack(AnimationState attackState) {
     ++remoteBattleReport_.playerAttacks;
     const PlayerType remoteType = gameManager_->getLanOpponentPlayerType();
     if (remoteType == PlayerType::ARCEN) {
-        int damage = enemy->calculateDamage();
-        if (attackState == AnimationState::ATTACK2) {
-            damage = static_cast<int>(damage * 1.2);
-        } else if (attackState == AnimationState::ATTACK3) {
-            damage = static_cast<int>(damage * 1.35);
-        }
+        const int damage = arcenArrowDamage(enemy->calculateDamage(), attackState);
 
         if (!enemyProjectileActive_) {
             spawnEnemyProjectile(enemy->getEnemyType(), damage);
@@ -1312,11 +1350,25 @@ ChronicleBattleReport BattleWidget::levelBattleReport() const {
     return report;
 }
 
+std::optional<CombatHighlightSnapshot> BattleWidget::levelBattleHighlight() const {
+    return highlightTracker_.snapshot();
+}
+
 void BattleWidget::paintEvent(QPaintEvent *event) {
     QWidget::paintEvent(event);
     
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    renderBattleScene(painter, true);
+
+    if (highlightTracker_.needsCapture()) {
+        captureHighlightFrame(true);
+    }
+}
+
+void BattleWidget::renderBattleScene(QPainter& painter,
+                                     bool includeTransientOverlays,
+                                     bool focusHighlightCombatants) {
     drawArenaBackground(painter);
     const double floorY = groundY();
     
@@ -1337,8 +1389,27 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
         drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
                                  QString::fromStdString(player->getName()), playerAnimChar_, true);
     } else {
+        double highlightShift = 0.0;
+        if (focusHighlightCombatants) {
+            const double guard = qMax(120.0, width() * 0.16);
+            const double desiredCenter = width() * 0.5;
+            const double combatCenter = (playerX_ + enemyX_) * 0.5;
+            highlightShift = desiredCenter - combatCenter;
+
+            const double shiftedLeft = qMin(playerX_ + highlightShift, enemyX_ + highlightShift);
+            const double shiftedRight = qMax(playerX_ + highlightShift, enemyX_ + highlightShift);
+            if (shiftedLeft < guard) {
+                highlightShift += guard - shiftedLeft;
+            }
+            if (shiftedRight > width() - guard) {
+                highlightShift -= shiftedRight - (width() - guard);
+            }
+        }
+
         // Draw fighters with animation support - Draw enemy first so player is on top
         drawFinalKingStageScene(painter);
+        painter.save();
+        painter.translate(highlightShift, 0.0);
         drawFighterWithAnimation(painter, enemyX_, floorY, enemy->getHealth(), enemy->getMaxHealth(),
                                  QString::fromStdString(enemy->getName()), enemyAnimChar_, false);
         drawFighterWithAnimation(painter, playerX_, floorY, player->getHealth(), player->getMaxHealth(),
@@ -1346,13 +1417,76 @@ void BattleWidget::paintEvent(QPaintEvent *event) {
 
         drawArcenProjectile(painter);
         drawEnemyProjectile(painter);
+        painter.restore();
     }
     
     // Draw HUD and status
     drawHUD(painter);
     drawStatus(painter);
-    drawFinalRescueDialogue(painter);
-    drawCountdownOverlay(painter);
+    if (includeTransientOverlays) {
+        drawFinalRescueDialogue(painter);
+        drawCountdownOverlay(painter);
+    }
+}
+
+void BattleWidget::captureHighlightFrame(bool focusHighlightCombatants) {
+    if (width() <= 0 || height() <= 0) {
+        return;
+    }
+
+    QPixmap capture(size());
+    capture.fill(Qt::transparent);
+
+    {
+        QPainter capturePainter(&capture);
+        capturePainter.setRenderHint(QPainter::Antialiasing, true);
+        renderBattleScene(capturePainter, false, focusHighlightCombatants);
+    }
+
+    QImage image = capture.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    if (image.width() > 1280) {
+        image = image.scaledToWidth(1280, Qt::SmoothTransformation);
+    }
+
+    QByteArray imageBytes;
+    QBuffer buffer(&imageBytes);
+    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) {
+        return;
+    }
+
+    highlightTracker_.completeCapture(imageBytes, QStringLiteral("image/png"), QDateTime::currentDateTimeUtc());
+}
+
+CombatHighlightCandidate BattleWidget::buildHighlightCandidate(HighlightAttackType attackType,
+                                                               int damage,
+                                                               bool wasProjectile,
+                                                               int playerHpBefore,
+                                                               int enemyHpBefore,
+                                                               int enemyHpAfter) const {
+    CombatHighlightCandidate candidate;
+    candidate.attackType = attackType;
+    candidate.damage = qMax(0, damage);
+    candidate.wasProjectile = wasProjectile;
+    candidate.wasFinisher = enemyHpAfter <= 0;
+    candidate.playerHpBefore = qMax(0, playerHpBefore);
+    candidate.playerHpAfter = gameManager_ && gameManager_->getPlayer() ? gameManager_->getPlayer()->getHealth() : qMax(0, playerHpBefore);
+    candidate.playerMaxHp = gameManager_ && gameManager_->getPlayer() ? gameManager_->getPlayer()->getMaxHealth() : 0;
+    candidate.enemyHpBefore = qMax(0, enemyHpBefore);
+    candidate.enemyHpAfter = qMax(0, enemyHpAfter);
+    return candidate;
+}
+
+bool BattleWidget::considerPlayerHighlight(const CombatHighlightCandidate& candidate) {
+    if (!gameManager_ || gameManager_->isLanDuel()) {
+        return false;
+    }
+
+    if (highlightTracker_.considerCandidate(candidate)) {
+        update();
+        return true;
+    }
+
+    return false;
 }
 
 void BattleWidget::drawFighter(QPainter &painter, double x, double y, int hp, int maxHp,
@@ -1901,12 +2035,7 @@ void BattleWidget::advanceFrame() {
 
                     const PlayerType playerType = gameManager_->getSelectedPlayerType();
                     if (playerType == PlayerType::ARCEN && !arcenProjectileActive_) {
-                        int damage = player->calculateDamage();
-                        if (predictedAttackState == AnimationState::ATTACK2) {
-                            damage = static_cast<int>(damage * 1.2);
-                        } else if (predictedAttackState == AnimationState::ATTACK3) {
-                            damage = static_cast<int>(damage * 1.35);
-                        }
+                        const int damage = arcenArrowDamage(player->calculateDamage(), predictedAttackState);
                         spawnArcenProjectile(damage);
                         statusMessage_ = "Arrow fired!";
                         statusDisplayTime_ = 0.7;
@@ -1975,6 +2104,14 @@ void BattleWidget::advanceFrame() {
                     enemyProjectileAnimTime_ = 0.0;
                     enemyProjectileFrame_ = 0;
                     enemyProjectileExplosionTime_ = 0.0;
+                    enemyAiDecision_ = FighterAiDecision();
+                    enemyAiDecisionTimer_ = 0.0;
+                    enemyAiPlayerAttackMemory_ = 0.0;
+                    enemyAiPlayerMissMemory_ = 0.0;
+                    enemyAiPlayerHealMemory_ = 0.0;
+                    enemyAiEnemyDamageMemory_ = 0.0;
+                    enemyAiLastEnemyHp_ = nextGuardian->getHealth();
+                    enemyAiLastAttack_ = AnimationState::ATTACK1;
                     statusMessage_ = QString("%1 lunges forward to guard the king!")
                                          .arg(QString::fromStdString(nextGuardian->getName()));
                     statusDisplayTime_ = 2.0;
@@ -2146,6 +2283,74 @@ void BattleWidget::drawFinalRescueTransition(QPainter &painter) {
     drawGroundedSprite(painter, kingSprite, kingX, floorY - 6.0, kingHeight, false, kingOpacity);
 }
 
+FighterAiContext BattleWidget::buildEnemyAiContext(double distance) const {
+    FighterAiContext context;
+    context.distance = distance;
+    context.attackRange = ATTACK_RANGE;
+    context.difficulty = gameManager_ ? gameManager_->getDifficulty() : DifficultyLevel::NORMAL;
+
+    const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
+    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+    if (player) {
+        context.playerHp = player->getHealth();
+        context.playerMaxHp = player->getMaxHealth();
+    }
+    if (enemy) {
+        context.enemyHp = enemy->getHealth();
+        context.enemyMaxHp = enemy->getMaxHealth();
+        context.enemyType = enemy->getEnemyType();
+    }
+
+    context.opponentIsPlayerRival = gameManager_
+        && (gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE));
+    if (context.opponentIsPlayerRival && gameManager_) {
+        context.rivalPlayerType = gameManager_->getLanOpponentPlayerType();
+    }
+
+    const FighterAiProfile profile = FighterAiBrain::profileForContext(context);
+    context.projectileReady = profile.hasProjectile && !enemyProjectileActive_;
+    context.enemyHealReady = enemyHealCooldown_ <= 0.0;
+    context.playerRecentlyAttacked = enemyAiPlayerAttackMemory_ > 0.0;
+    context.playerRecentlyMissed = enemyAiPlayerMissMemory_ > 0.0;
+    context.playerRecentlyHealed = enemyAiPlayerHealMemory_ > 0.0;
+    context.enemyRecentlyDamaged = enemyAiEnemyDamageMemory_ > 0.0;
+    return context;
+}
+
+void BattleWidget::updateEnemyAiMemory(double dt) {
+    enemyAiDecisionTimer_ = qMax(0.0, enemyAiDecisionTimer_ - dt);
+    enemyAiPlayerAttackMemory_ = qMax(0.0, enemyAiPlayerAttackMemory_ - dt);
+    enemyAiPlayerMissMemory_ = qMax(0.0, enemyAiPlayerMissMemory_ - dt);
+    enemyAiPlayerHealMemory_ = qMax(0.0, enemyAiPlayerHealMemory_ - dt);
+    enemyAiEnemyDamageMemory_ = qMax(0.0, enemyAiEnemyDamageMemory_ - dt);
+
+    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+    if (!enemy || !enemy->isAlive()) {
+        enemyAiLastEnemyHp_ = enemy ? enemy->getHealth() : 0;
+        return;
+    }
+
+    const int currentHp = enemy->getHealth();
+    if (enemyAiLastEnemyHp_ > 0 && currentHp < enemyAiLastEnemyHp_) {
+        enemyAiEnemyDamageMemory_ = 2.0;
+        enemyAiDecisionTimer_ = 0.0;
+    }
+    enemyAiLastEnemyHp_ = currentHp;
+}
+
+void BattleWidget::refreshEnemyAiDecision(double dt, double distance) {
+    updateEnemyAiMemory(dt);
+    if (lanBridgeActive_ || enemyAiDecisionTimer_ > 0.0) {
+        return;
+    }
+
+    enemyAiDecision_ = FighterAiBrain::chooseDecision(buildEnemyAiContext(distance));
+    enemyAiDecisionTimer_ = qMax(0.12, enemyAiDecision_.decisionDuration);
+    enemyAiLastAttack_ = enemyAiDecision_.attackState;
+}
+
 
 void BattleWidget::updatePlayerMovement(double dt) {
     double moveAmount = MOVE_SPEED * dt;
@@ -2177,6 +2382,9 @@ void BattleWidget::updatePlayerMovement(double dt) {
 
 void BattleWidget::updateEnemyAI(double dt) {
     double distToPlayer = playerX_ - enemyX_;
+    const double absDistToPlayer = std::abs(distToPlayer);
+    refreshEnemyAiDecision(dt, absDistToPlayer);
+
     double moveAmount = 150.0 * dt; // Enemy is slightly slower
     const bool duelPlayerRival = gameManager_
         && (gameManager_->isLanDuel()
@@ -2202,22 +2410,66 @@ void BattleWidget::updateEnemyAI(double dt) {
                 break;
         }
     }
-    
-    // Simple AI: approach if far, retreat if close
-    if (std::abs(distToPlayer) > ATTACK_RANGE + 50) {
-        // Approach player
+
+    moveAmount *= enemyAiDecision_.moveSpeedMultiplier;
+
+    bool enemyMoved = false;
+    auto approachPlayer = [&](double amount) {
         if (distToPlayer > 0) {
-            enemyX_ = qMin(double(width()) - 60.0, enemyX_ + moveAmount);
+            const double next = qMin(double(width()) - 60.0, enemyX_ + amount);
+            enemyMoved = enemyMoved || std::abs(next - enemyX_) > 0.1;
+            enemyX_ = next;
         } else {
-            enemyX_ = qMax(60.0, enemyX_ - moveAmount);
+            const double next = qMax(60.0, enemyX_ - amount);
+            enemyMoved = enemyMoved || std::abs(next - enemyX_) > 0.1;
+            enemyX_ = next;
         }
-    } else if (std::abs(distToPlayer) < ATTACK_RANGE - 30) {
-        // Retreat a bit
+    };
+    auto retreatFromPlayer = [&](double amount) {
         if (distToPlayer > 0) {
-            enemyX_ = qMax(60.0, enemyX_ - moveAmount * 0.5);
+            const double next = qMax(60.0, enemyX_ - amount);
+            enemyMoved = enemyMoved || std::abs(next - enemyX_) > 0.1;
+            enemyX_ = next;
         } else {
-            enemyX_ = qMin(double(width()) - 60.0, enemyX_ + moveAmount * 0.5);
+            const double next = qMin(double(width()) - 60.0, enemyX_ + amount);
+            enemyMoved = enemyMoved || std::abs(next - enemyX_) > 0.1;
+            enemyX_ = next;
         }
+    };
+
+    const FighterAiProfile profile = FighterAiBrain::profileForContext(buildEnemyAiContext(absDistToPlayer));
+    switch (enemyAiDecision_.state) {
+        case FighterAiState::Approach:
+        case FighterAiState::Punish:
+            approachPlayer(moveAmount);
+            break;
+        case FighterAiState::Retreat:
+            retreatFromPlayer(moveAmount);
+            break;
+        case FighterAiState::Bait: {
+            const double baitRange = ATTACK_RANGE + 38.0;
+            if (absDistToPlayer < baitRange - 12.0) {
+                retreatFromPlayer(moveAmount * 0.78);
+            } else if (absDistToPlayer > baitRange + 46.0) {
+                approachPlayer(moveAmount * 0.52);
+            }
+            break;
+        }
+        case FighterAiState::HoldRange:
+        case FighterAiState::ProjectileAttack:
+            if (absDistToPlayer < profile.idealMinRange) {
+                retreatFromPlayer(moveAmount * 0.72);
+            } else if (absDistToPlayer > profile.idealMaxRange) {
+                approachPlayer(moveAmount * 0.62);
+            }
+            break;
+        case FighterAiState::MeleeAttack:
+            if (absDistToPlayer > ATTACK_RANGE * 0.88) {
+                approachPlayer(moveAmount * 0.42);
+            }
+            break;
+        case FighterAiState::Recover:
+            break;
     }
 
     if (enemyAnimChar_) {
@@ -2226,7 +2478,7 @@ void BattleWidget::updateEnemyAI(double dt) {
                              st == AnimationState::ATTACK3 || st == AnimationState::STRONG_ATTACK ||
                              st == AnimationState::HURT || st == AnimationState::DEATH);
         if (!locked) {
-            if (std::abs(distToPlayer) > ATTACK_RANGE - 10) {
+            if (enemyMoved) {
                 enemyAnimChar_->setAnimationState(AnimationState::RUN);
             } else {
                 enemyAnimChar_->setAnimationState(AnimationState::IDLE);
@@ -2237,12 +2489,15 @@ void BattleWidget::updateEnemyAI(double dt) {
 
 void BattleWidget::tryPlayerAttack(double dt) {
     if (playerCooldown_ > 0.0) return;
-    
+
     Player *player = const_cast<Player*>(gameManager_->getPlayer());
     Enemy *enemy = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
-    
+
     if (!player || !enemy || !player->isAlive() || !enemy->isAlive()) return;
-    
+
+    ++levelBattleReport_.playerAttacks;
+    enemyAiPlayerAttackMemory_ = 1.0;
+
     // Trigger player attack animation regardless of distance
     if (playerAnimChar_) {
         playerAnimChar_->setAnimationState(queuedPlayerAttackState_);
@@ -2253,12 +2508,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
         if (soundManager_) {
             soundManager_->playAttack();
         }
-        int damage = player->calculateDamage();
-        if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
-            damage = static_cast<int>(damage * 1.2);
-        } else if (queuedPlayerAttackState_ == AnimationState::ATTACK3) {
-            damage = static_cast<int>(damage * 1.35);
-        }
+        const int damage = arcenArrowDamage(player->calculateDamage(), queuedPlayerAttackState_);
 
         if (!arcenProjectileActive_) {
             spawnArcenProjectile(damage);
@@ -2268,6 +2518,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
             statusMessage_ = "Arrow already in flight";
             statusDisplayTime_ = 0.7;
             ++levelBattleReport_.playerMisses;
+            enemyAiPlayerMissMemory_ = 1.2;
         }
 
         playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
@@ -2287,6 +2538,8 @@ void BattleWidget::tryPlayerAttack(double dt) {
             damage = static_cast<int>(damage * 1.35);
         }
 
+        const int playerHpBefore = player->getHealth();
+        const int enemyHpBefore = enemy->getHealth();
         enemy->takeDamage(damage);
         score_ += damage * 10;
         levelBattleReport_.damageDealt += qMax(0, damage);
@@ -2294,6 +2547,13 @@ void BattleWidget::tryPlayerAttack(double dt) {
         if (gameManager_ && gameManager_->isLanDuel() && lanHostAuthority_) {
             remoteBattleReport_.damageTaken += qMax(0, damage);
         }
+        const bool highlightAccepted =
+            considerPlayerHighlight(buildHighlightCandidate(highlightAttackTypeForAnimation(queuedPlayerAttackState_),
+                                                           damage,
+                                                           false,
+                                                           playerHpBefore,
+                                                           enemyHpBefore,
+                                                           enemy->getHealth()));
         
         if (soundManager_) soundManager_->playHit();
         // Trigger enemy hurt animation
@@ -2303,6 +2563,10 @@ void BattleWidget::tryPlayerAttack(double dt) {
         
         statusMessage_ = QString("Hit! Dealt %1 damage!").arg(damage);
         statusDisplayTime_ = 1.0;
+
+        if (highlightAccepted) {
+            captureHighlightFrame(true);
+        }
         
         if (!enemy->isAlive()) {
 
@@ -2317,6 +2581,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
         statusMessage_ = "Miss! Too far away!";
         statusDisplayTime_ = 1.0;
         ++levelBattleReport_.playerMisses;
+        enemyAiPlayerMissMemory_ = 1.35;
     }
 
     playerCooldown_ = PLAYER_ATTACK_COOLDOWN;
@@ -2330,11 +2595,18 @@ void BattleWidget::tryEnemyAttack(double dt) {
     
     const EnemyType enemyType = enemy->getEnemyType();
     double distToPlayer = std::abs(playerX_ - enemyX_);
-    const int roll = std::rand() % 100;
+    refreshEnemyAiDecision(0.0, distToPlayer);
+    const FighterAiContext aiContext = buildEnemyAiContext(distToPlayer);
+    const FighterAiProfile aiProfile = FighterAiBrain::profileForContext(aiContext);
 
+    const bool demonSlayerFireball = aiContext.opponentIsPlayerRival &&
+                                     aiContext.rivalPlayerType == PlayerType::DEMON_SLAYER;
     const bool prefersProjectile = (enemyType == EnemyType::FIRE_WORM ||
                                     enemyType == EnemyType::NIGHTWEAVER ||
-                                    enemyType == EnemyType::FLYING_DEMON);
+                                    enemyType == EnemyType::FLYING_DEMON ||
+                                    demonSlayerFireball ||
+                                    (aiContext.opponentIsPlayerRival &&
+                                     aiContext.rivalPlayerType == PlayerType::ARCEN));
     double projectileRange = ATTACK_RANGE + 180.0;
     if (enemyType == EnemyType::FIRE_WORM) {
         projectileRange = ATTACK_RANGE + 360.0;
@@ -2342,16 +2614,19 @@ void BattleWidget::tryEnemyAttack(double dt) {
         projectileRange = ATTACK_RANGE + 260.0;
     } else if (enemyType == EnemyType::FLYING_DEMON) {
         projectileRange = ATTACK_RANGE + 240.0;
+    } else if (aiContext.opponentIsPlayerRival && aiContext.rivalPlayerType == PlayerType::ARCEN) {
+        projectileRange = (ATTACK_RANGE + 430.0) * 3.0;
+    } else if (demonSlayerFireball) {
+        projectileRange = ATTACK_RANGE + 330.0;
     }
 
     const bool shouldUseProjectile =
+        enemyAiDecision_.wantsProjectile &&
         prefersProjectile &&
         !enemyProjectileActive_ &&
         distToPlayer <= projectileRange &&
-        distToPlayer > ATTACK_RANGE * 0.75 &&
-        ((enemyType == EnemyType::FIRE_WORM) ||
-         (enemyType == EnemyType::NIGHTWEAVER && roll >= 28) ||
-         (enemyType == EnemyType::FLYING_DEMON && roll >= 42));
+        distToPlayer > ATTACK_RANGE * 0.65 &&
+        aiProfile.hasProjectile;
 
     if (shouldUseProjectile) {
         int damage = enemy->calculateDamage();
@@ -2359,6 +2634,10 @@ void BattleWidget::tryEnemyAttack(double dt) {
             damage = static_cast<int>(damage * 1.15);
         } else if (enemyType == EnemyType::FLYING_DEMON) {
             damage = static_cast<int>(damage * 1.1);
+        } else if (demonSlayerFireball) {
+            damage = static_cast<int>(damage * 1.12);
+        } else if (aiContext.opponentIsPlayerRival && aiContext.rivalPlayerType == PlayerType::ARCEN) {
+            damage = arcenArrowDamage(damage, enemyAiDecision_.attackState);
         }
 
         if (enemyAnimChar_) {
@@ -2366,10 +2645,14 @@ void BattleWidget::tryEnemyAttack(double dt) {
         }
 
         spawnEnemyProjectile(enemyType, damage);
-        enemyCooldown_ = ENEMY_ATTACK_COOLDOWN + 0.25;
+        enemyCooldown_ = (ENEMY_ATTACK_COOLDOWN + 0.25) * enemyAiDecision_.attackCooldownMultiplier;
         if (gameManager_ && gameManager_->isLanDuel()) {
             statusMessage_ = QString("%1 launches a ranged strike!")
                                  .arg(QString::fromStdString(enemy->getName()));
+        } else if (aiContext.opponentIsPlayerRival && aiContext.rivalPlayerType == PlayerType::ARCEN) {
+            statusMessage_ = QString("%1 fires an arrow!").arg(QString::fromStdString(enemy->getName()));
+        } else if (demonSlayerFireball) {
+            statusMessage_ = QString("%1 throws a fireball!").arg(QString::fromStdString(enemy->getName()));
         } else {
             statusMessage_ = enemyType == EnemyType::FIRE_WORM ? "Fire Worm launches a fireball!"
                           : enemyType == EnemyType::FLYING_DEMON ? "Flying Demon hurls a hellfire orb!"
@@ -2379,28 +2662,41 @@ void BattleWidget::tryEnemyAttack(double dt) {
         return;
     }
 
+    if (enemyAiDecision_.wantsHeal &&
+        enemyHealCooldown_ <= 0.0 &&
+        enemy->getHealth() < enemy->getMaxHealth()) {
+        const double difficultyScale =
+            aiContext.difficulty == DifficultyLevel::HARD ? 0.20 :
+            aiContext.difficulty == DifficultyLevel::EASY ? 0.13 : 0.16;
+        const int healAmount = qBound(12, static_cast<int>(enemy->getMaxHealth() * difficultyScale), 34);
+        enemy->takeDamage(-healAmount);
+        enemyHealCooldown_ = 6.5;
+        enemyCooldown_ = (ENEMY_ATTACK_COOLDOWN * 0.65) * enemyAiDecision_.attackCooldownMultiplier;
+        enemyAiEnemyDamageMemory_ = 0.0;
+        enemyAiLastEnemyHp_ = enemy->getHealth();
+        if (enemyAnimChar_) {
+            enemyAnimChar_->setAnimationState(AnimationState::IDLE);
+        }
+        statusMessage_ = QString("%1 steps back and heals %2 HP.")
+                             .arg(QString::fromStdString(enemy->getName()))
+                             .arg(healAmount);
+        statusDisplayTime_ = 1.3;
+        return;
+    }
+
+    if (!enemyAiDecision_.wantsAttack &&
+        enemyAiDecision_.state != FighterAiState::MeleeAttack &&
+        enemyAiDecision_.state != FighterAiState::Punish) {
+        enemyCooldown_ = 0.28 * enemyAiDecision_.attackCooldownMultiplier;
+        return;
+    }
+
     if (distToPlayer <= ATTACK_RANGE) {
         int damage = enemy->calculateDamage();
-        AnimationState enemyAttackAnim = AnimationState::ATTACK1;
-        if (enemyType == EnemyType::EVIL_WIZARD) {
-            if (roll < 52) {
-                enemyAttackAnim = AnimationState::ATTACK1;
-            } else {
-                enemyAttackAnim = AnimationState::ATTACK2;
-                damage = static_cast<int>(damage * 1.18);
-            }
-        } else if (enemyType == EnemyType::FIRE_WIZARD) {
-            enemyAttackAnim = (roll < 55) ? AnimationState::ATTACK1 : AnimationState::ATTACK2;
-            if (enemyAttackAnim == AnimationState::ATTACK2) {
-                damage = static_cast<int>(damage * 1.12);
-            }
-        } else if (roll < 45) {
-            enemyAttackAnim = AnimationState::ATTACK1;
-        } else if (roll < 78) {
-            enemyAttackAnim = AnimationState::ATTACK2;
+        AnimationState enemyAttackAnim = enemyAiDecision_.attackState;
+        if (enemyAttackAnim == AnimationState::ATTACK2) {
             damage = static_cast<int>(damage * 1.15);
-        } else {
-            enemyAttackAnim = AnimationState::ATTACK3;
+        } else if (enemyAttackAnim == AnimationState::ATTACK3) {
             damage = static_cast<int>(damage * 1.3);
         }
 
@@ -2419,7 +2715,7 @@ void BattleWidget::tryEnemyAttack(double dt) {
             playerAnimChar_->takeDamage();
         }
         
-        enemyCooldown_ = ENEMY_ATTACK_COOLDOWN;
+        enemyCooldown_ = ENEMY_ATTACK_COOLDOWN * enemyAiDecision_.attackCooldownMultiplier;
         statusMessage_ = (gameManager_ && gameManager_->isDuelMode())
             ? QString("%1 lands %2 damage!").arg(QString::fromStdString(enemy->getName())).arg(damage)
             : QString("Enemy deals %1 damage!").arg(damage);
@@ -2436,7 +2732,7 @@ void BattleWidget::tryEnemyAttack(double dt) {
         }
     } else {
         // Enemy moves closer instead of attacking
-        enemyCooldown_ = 0.3;
+        enemyCooldown_ = 0.3 * enemyAiDecision_.attackCooldownMultiplier;
     }
 }
 
@@ -2613,6 +2909,8 @@ void BattleWidget::loadOpponentCharacterAnimations(PlayerType type) {
             enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, 4, basePath + "/Attack2.png", false, 60);
             enemyAnimManager_->loadAnimation(AnimationState::DEATH, 7, basePath + "/Death.png", false, 110);
             enemyAnimManager_->loadAnimation(AnimationState::HURT, 3, basePath + "/Take hit.png", false, 90);
+            enemyProjectileMoveSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Move.png"));
+            enemyProjectileExplodeSprite_ = QPixmap(resolveAssetPath("assets/enemies/Fire_Worm/Sprites/Fire Ball/Explosion.png"));
             break;
 
         case PlayerType::FANTASY_WARRIOR:
@@ -2945,6 +3243,7 @@ void BattleWidget::spawnArcenProjectile(int damage) {
     arcenProjectileActive_ = true;
     arcenProjectileDamage_ = qMax(1, damage);
     ++levelBattleReport_.projectilesFired;
+    arcenProjectileAttackType_ = highlightAttackTypeForAnimation(queuedPlayerAttackState_);
     arcenProjectileFacingRight_ = enemyX_ >= playerX_;
     arcenProjectileAnimTime_ = 0.0;
     arcenProjectileFrame_ = 0;
@@ -2983,6 +3282,7 @@ void BattleWidget::updateArcenProjectile(double dt) {
     if (arcenProjectileX_ < ARENA_LEFT_X || arcenProjectileX_ > (width() - ARENA_RIGHT_MARGIN)) {
         arcenProjectileActive_ = false;
         ++levelBattleReport_.playerMisses;
+        enemyAiPlayerMissMemory_ = 1.35;
         return;
     }
 
@@ -3007,8 +3307,13 @@ void BattleWidget::updateArcenProjectile(double dt) {
 
     const double hitDistance = std::abs(arcenProjectileX_ - enemyX_);
     if (hitDistance <= ARCEN_PROJECTILE_HIT_WIDTH) {
+        const int playerHpBefore = player ? player->getHealth() : 0;
+        const int enemyHpBefore = enemy->getHealth();
         enemy->takeDamage(arcenProjectileDamage_);
         score_ += arcenProjectileDamage_ * 10;
+        levelBattleReport_.damageDealt += qMax(0, arcenProjectileDamage_);
+        ++levelBattleReport_.playerHits;
+        ++levelBattleReport_.projectilesHit;
         if (soundManager_) {
             soundManager_->playHit();
         }
@@ -3017,8 +3322,20 @@ void BattleWidget::updateArcenProjectile(double dt) {
             enemyAnimChar_->takeDamage();
         }
 
+        const bool highlightAccepted =
+            considerPlayerHighlight(buildHighlightCandidate(arcenProjectileAttackType_,
+                                                           arcenProjectileDamage_,
+                                                           true,
+                                                           playerHpBefore,
+                                                           enemyHpBefore,
+                                                           enemy->getHealth()));
+
         statusMessage_ = QString("Arrow hit! Dealt %1 damage!").arg(arcenProjectileDamage_);
         statusDisplayTime_ = 1.0;
+
+        if (highlightAccepted) {
+            captureHighlightFrame(true);
+        }
 
         if (!enemy->isAlive()) {
             if (soundManager_) soundManager_->playEnemyDeath();
@@ -3043,6 +3360,9 @@ void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
     const bool remoteArcenProjectile = opponentUsesPlayerRival
         && gameManager_->getLanOpponentPlayerType() == PlayerType::ARCEN
         && (!gameManager_->isLanDuel() || lanHostAuthority_);
+    const bool remoteDemonSlayerFireball = opponentUsesPlayerRival
+        && gameManager_->getLanOpponentPlayerType() == PlayerType::DEMON_SLAYER
+        && (!gameManager_->isLanDuel() || lanHostAuthority_);
 
     enemyProjectileActive_ = true;
     enemyProjectileExploding_ = false;
@@ -3056,6 +3376,7 @@ void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
     enemyProjectileSpeed_ = remoteArcenProjectile ? 900.0
         : (type == EnemyType::FIRE_WORM) ? 520.0
         : (type == EnemyType::FLYING_DEMON) ? 640.0
+        : remoteDemonSlayerFireball ? 620.0
                                             : 760.0;
 
     const qreal arenaHeight = qMax(1.0, static_cast<qreal>(height() - 160));
@@ -3063,6 +3384,7 @@ void BattleWidget::spawnEnemyProjectile(EnemyType type, int damage) {
     const qreal projectileHeightRatio = remoteArcenProjectile ? ARCEN_ARROW_LAUNCH_HEIGHT_RATIO
                                     : (type == EnemyType::FIRE_WORM) ? 0.28
                                     : (type == EnemyType::FLYING_DEMON) ? 0.72
+                                    : remoteDemonSlayerFireball ? 0.62
                                                                         : 0.68;
     enemyProjectileY_ = groundY() - desiredEnemyHeight * projectileHeightRatio;
     enemyProjectileX_ = enemyX_ + (enemyProjectileFacingRight_ ? 46.0 : -46.0);
@@ -3093,9 +3415,15 @@ void BattleWidget::updateEnemyProjectile(double dt) {
 
     if (enemyProjectileAnimTime_ >= 0.08) {
         enemyProjectileAnimTime_ = 0.0;
+        const bool demonSlayerFireball = gameManager_
+            && (gameManager_->isLanDuel()
+                || (gameManager_->isDuelMode()
+                    && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE))
+            && gameManager_->getLanOpponentPlayerType() == PlayerType::DEMON_SLAYER;
         const int maxMoveFrames = enemyProjectileUsesArcenArrow_ ? 2
                                : (enemyProjectileType_ == EnemyType::FIRE_WORM ||
-                                   enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 6 : 4;
+                                   enemyProjectileType_ == EnemyType::FLYING_DEMON ||
+                                   demonSlayerFireball) ? 6 : 4;
         enemyProjectileFrame_ = (enemyProjectileFrame_ + 1) % maxMoveFrames;
     }
 
@@ -3132,6 +3460,11 @@ void BattleWidget::updateEnemyProjectile(double dt) {
 
     const double hitDistance = std::abs(enemyProjectileX_ - playerX_);
     if (hitDistance <= ENEMY_PROJECTILE_HIT_WIDTH) {
+        const bool demonSlayerFireball = gameManager_
+            && (gameManager_->isLanDuel()
+                || (gameManager_->isDuelMode()
+                    && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE))
+            && gameManager_->getLanOpponentPlayerType() == PlayerType::DEMON_SLAYER;
         player->takeDamage(enemyProjectileDamage_);
         if (soundManager_) {
             soundManager_->playHit();
@@ -3140,11 +3473,13 @@ void BattleWidget::updateEnemyProjectile(double dt) {
             playerAnimChar_->takeDamage();
         }
 
-        statusMessage_ = enemyProjectileType_ == EnemyType::FIRE_WORM
-                             ? (enemyProjectileUsesArcenArrow_
-                                 ? QString("Arrow hit! Took %1 damage!").arg(enemyProjectileDamage_)
-                                 : QString("Fireball hit! Took %1 damage!").arg(enemyProjectileDamage_))
-                             : QString("Shadow bolt hit! Took %1 damage!").arg(enemyProjectileDamage_);
+        statusMessage_ = enemyProjectileUsesArcenArrow_
+                             ? QString("Arrow hit! Took %1 damage!").arg(enemyProjectileDamage_)
+                             : (enemyProjectileType_ == EnemyType::FIRE_WORM ||
+                                enemyProjectileType_ == EnemyType::FLYING_DEMON ||
+                                demonSlayerFireball)
+                                   ? QString("Fireball hit! Took %1 damage!").arg(enemyProjectileDamage_)
+                                   : QString("Shadow bolt hit! Took %1 damage!").arg(enemyProjectileDamage_);
         statusDisplayTime_ = 1.2;
 
         enemyProjectileExploding_ = !enemyProjectileUsesArcenArrow_ && !enemyProjectileExplodeSprite_.isNull();
@@ -3274,10 +3609,16 @@ void BattleWidget::drawEnemyProjectile(QPainter &painter) {
         return;
     }
 
+    const bool demonSlayerFireball = gameManager_
+        && (gameManager_->isLanDuel()
+            || (gameManager_->isDuelMode()
+                && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE))
+        && gameManager_->getLanOpponentPlayerType() == PlayerType::DEMON_SLAYER;
     const int frameCount = enemyProjectileExploding_
                                ? 7
                                : ((enemyProjectileType_ == EnemyType::FIRE_WORM ||
-                                   enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 6 : 4);
+                                   enemyProjectileType_ == EnemyType::FLYING_DEMON ||
+                                   demonSlayerFireball) ? 6 : 4);
     const int frameWidth = qMax(1, spriteSheet.width() / qMax(1, frameCount));
     const int frameHeight = spriteSheet.height();
     const int frameIndex = qBound(0, enemyProjectileFrame_, frameCount - 1);
@@ -3287,6 +3628,7 @@ void BattleWidget::drawEnemyProjectile(QPainter &painter) {
     const qreal desiredEnemyHeight = arenaHeight * FIGHTER_VISIBLE_HEIGHT_RATIO;
     const qreal spriteScale = (enemyProjectileType_ == EnemyType::FIRE_WORM) ? 0.26
                              : (enemyProjectileType_ == EnemyType::FLYING_DEMON) ? 0.23
+                             : demonSlayerFireball ? 0.24
                                                                                   : 0.22;
     const qreal scale = desiredEnemyHeight * spriteScale / qMax(1, sprite.height());
     const qreal w = sprite.width() * scale;
@@ -3495,6 +3837,8 @@ void BattleWidget::tryPlayerHeal() {
     
     player->takeDamage(-25); // Heal 25 HP
     healCooldown_ = 5.0; // 5 second cooldown
+    ++levelBattleReport_.healsUsed;
+    enemyAiPlayerHealMemory_ = 1.4;
     if (soundManager_) {
         soundManager_->playHeal();
     }

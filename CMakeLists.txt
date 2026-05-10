@@ -19,9 +19,12 @@ add_executable(${PROJECT_NAME}
     src/Character.cpp
     src/ChronicleAiAdvisor.cpp
     src/ChronicleOpenRouterClient.cpp
+    src/CombatHighlightTracker.cpp
     src/DatabaseManager.cpp
     src/Enemy.cpp
     src/ExhibitionSetupPage.cpp
+    src/FighterAiBrain.cpp
+    src/FighterAiProfile.cpp
     src/GameManager.cpp
     src/GamePage.cpp
     src/GameOverPage.cpp
@@ -48,10 +51,14 @@ add_executable(${PROJECT_NAME}
     include/ChronicleAiAdvisor.h
     include/ChronicleAiTypes.h
     include/ChronicleOpenRouterClient.h
+    include/CombatHighlightTracker.h
+    include/CombatHighlightTypes.h
     include/DatabaseManager.h
     include/Enemy.h
     include/Enums.h
     include/ExhibitionSetupPage.h
+    include/FighterAiBrain.h
+    include/FighterAiProfile.h
     include/GameManager.h
     include/GamePage.h
     include/GameOverPage.h

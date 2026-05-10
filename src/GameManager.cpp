@@ -173,7 +173,8 @@ GameManager::GameManager(QObject *parent)
       duelOpponentPlayerType_(PlayerType::KNIGHT),
       duelOpponentName_(""),
       duelArenaName_(""),
-      campaignCompleted_(false) {
+      campaignCompleted_(false),
+      difficulty_(DifficultyLevel::NORMAL) {
     lanDuelMode_ = false;
     finalGuardianIndex_ = 0;
     runMode_ = RunMode::CAMPAIGN;
@@ -458,6 +459,14 @@ bool GameManager::isDuelMode() const {
 
 bool GameManager::didWinDuel() const {
     return duelVictory_;
+}
+
+void GameManager::setDifficulty(DifficultyLevel difficulty) {
+    difficulty_ = difficulty;
+}
+
+DifficultyLevel GameManager::getDifficulty() const {
+    return difficulty_;
 }
 
 void GameManager::spawnEnemyForCurrentLevel() {

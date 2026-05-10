@@ -1,5 +1,9 @@
 ﻿#include "ProfileLobbyWidget.h"
 
+#include "FighterAiProfile.h"
+#include "GameManager.h"
+#include "InputHandler.h"
+
 #include <QAction>
 #include <QCoreApplication>
 #include <QDir>
@@ -9,10 +13,13 @@
 #include <QFont>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
 #include <QGraphicsPixmapItem>
+#include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsTextItem>
 #include <QGraphicsView>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
@@ -21,6 +28,7 @@
 #include <QLinearGradient>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPaintEvent>
@@ -41,6 +49,10 @@
 namespace {
 
 constexpr qreal kLobbyPreviewScaleMultiplier = 1.836;
+constexpr qreal kLobbyPreviewFloorLiftRatio = 0.13;
+constexpr int kCharacterUnlockRevealMs = 8400;
+constexpr int kPreviewSceneWidth = 1200;
+constexpr int kPreviewSceneHeight = 1280;
 const QString kPlayableLobbyMode = QStringLiteral("Save the Kings");
 const QString kExhibitionLobbyMode = QStringLiteral("1v1 Exhibition");
 const QString kZombieLobbyMode = QStringLiteral("Zombie");
@@ -53,6 +65,57 @@ const QStringList kDuelArenaChoices = {
     QStringLiteral("Lava Pit"),
     QStringLiteral("Sky Ruins")
 };
+
+struct LobbyAnimationSpec {
+    QString idlePath;
+    int idleFrameCount;
+    QString attackPath;
+    int attackFrameCount;
+};
+
+qreal smoothStep(qreal value) {
+    const qreal t = qBound(0.0, value, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+qreal scaledBetween(qreal start, qreal end, qreal value) {
+    if (qFuzzyCompare(start, end)) {
+        return value >= end ? 1.0 : 0.0;
+    }
+    return qBound(0.0, (value - start) / (end - start), 1.0);
+}
+
+LobbyAnimationSpec animationSpecForCharacterName(const QString& name) {
+    const QString characterName = name.trimmed().toLower();
+    if (characterName.contains("arcen")) {
+        return {"Sprites/Character/Idle.png", 10, "Sprites/Character/Attack.png", 6};
+    }
+    if (characterName.contains("demon slayer")) {
+        return {"Sprites/Idle.png", 4, "Sprites/Attack1.png", 4};
+    }
+    if (characterName.contains("fantasy")) {
+        return {"Sprites/Idle.png", 10, "Sprites/Attack1.png", 7};
+    }
+    if (characterName.contains("huntress")) {
+        return {"Sprites/Idle.png", 8, "Sprites/Attack1.png", 5};
+    }
+    if (characterName.contains("knight")) {
+        return {"Sprites/IDLE.png", 7, "Sprites/ATTACK 1.png", 6};
+    }
+    if (characterName.contains("martial hero")) {
+        return {"Sprites/Idle.png", 8, "Sprites/Attack1.png", 6};
+    }
+    if (characterName.contains("martial")) {
+        return {"Sprite/Idle.png", 10, "Sprite/Attack1.png", 7};
+    }
+    if (characterName.contains("medieval")) {
+        return {"Sprites/Idle.png", 10, "Sprites/Attack1.png", 7};
+    }
+    if (characterName.contains("wizard")) {
+        return {"Sprites/Idle.png", 6, "Sprites/Attack1.png", 8};
+    }
+    return {QString(), 1, QString(), 0};
+}
 
 QString resolveAssetPath(const QString& relativePath) {
     if (relativePath.isEmpty()) {
@@ -143,6 +206,143 @@ QString profilePortraitPathForCharacter(const QString& name, const QString& imag
     if (lowered.contains("medieval")) return resolveAssetPath(QStringLiteral("assets/players/Medieval_Warrior/profile.png"));
     if (lowered.contains("wizard")) return resolveAssetPath(QStringLiteral("assets/players/Wizard/profile.png"));
     return QString();
+}
+
+QString rankNameForScore(int score) {
+    return QString::fromStdString(GameManager::calculateRankFromScore(qMax(0, score)));
+}
+
+QString canonicalRankName(const QString& rawRank, int score) {
+    static const QStringList ranks = {
+        QStringLiteral("Wanderer"),
+        QStringLiteral("Squire"),
+        QStringLiteral("Gladiator"),
+        QStringLiteral("Knight"),
+        QStringLiteral("Elite Knight"),
+        QStringLiteral("Warlord"),
+        QStringLiteral("Champion"),
+        QStringLiteral("High Champion"),
+        QStringLiteral("Legend"),
+        QStringLiteral("Immortal")
+    };
+
+    const QString cleaned = rawRank.trimmed();
+    for (const QString& rank : ranks) {
+        if (cleaned.compare(rank, Qt::CaseInsensitive) == 0) {
+            return rank;
+        }
+    }
+
+    return rankNameForScore(score);
+}
+
+QString rankBadgePath(const QString& rankName) {
+    QString fileName = rankName.trimmed();
+    fileName.replace(QLatin1Char(' '), QLatin1Char('_'));
+    if (fileName.isEmpty()) {
+        fileName = QStringLiteral("Wanderer");
+    }
+
+    return resolveAssetPath(QStringLiteral("assets/ranks/%1.png").arg(fileName));
+}
+
+QPixmap rankBadgePixmap(const QString& rankName, int side) {
+    const QString path = rankBadgePath(rankName);
+    if (path.isEmpty() || side <= 0) {
+        return QPixmap();
+    }
+
+    static QHash<QString, QPixmap> cache;
+    const QString key = QStringLiteral("%1|%2").arg(path).arg(side);
+    const auto cached = cache.constFind(key);
+    if (cached != cache.constEnd()) {
+        return cached.value();
+    }
+
+    const QPixmap badge(path);
+    if (badge.isNull()) {
+        return QPixmap();
+    }
+
+    const QPixmap scaled = badge.scaled(QSize(side, side), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    cache.insert(key, scaled);
+    return scaled;
+}
+
+QVector<PlayerType> rosterByUnlockTier() {
+    return {
+        PlayerType::KNIGHT,
+        PlayerType::MEDIEVAL_WARRIOR,
+        PlayerType::MARTIAL_HERO,
+        PlayerType::MARTIAL,
+        PlayerType::FANTASY_WARRIOR,
+        PlayerType::DEMON_SLAYER,
+        PlayerType::HUNTRESS,
+        PlayerType::ARCEN,
+        PlayerType::WIZARD
+    };
+}
+
+int rankTierForName(const QString& rankName) {
+    const QString rank = rankName.trimmed().toLower();
+    if (rank == QStringLiteral("squire")) return 2;
+    if (rank == QStringLiteral("gladiator")) return 3;
+    if (rank == QStringLiteral("knight")) return 4;
+    if (rank == QStringLiteral("elite knight")) return 5;
+    if (rank == QStringLiteral("warlord")) return 6;
+    if (rank == QStringLiteral("champion")) return 7;
+    if (rank == QStringLiteral("high champion")) return 8;
+    if (rank == QStringLiteral("legend")) return 9;
+    if (rank == QStringLiteral("immortal")) return 10;
+    return 1;
+}
+
+QString rankNameForUnlockTier(int tier) {
+    switch (tier) {
+        case 2: return QStringLiteral("Squire");
+        case 3: return QStringLiteral("Gladiator");
+        case 4: return QStringLiteral("Knight");
+        case 5: return QStringLiteral("Elite Knight");
+        case 6: return QStringLiteral("Warlord");
+        case 7: return QStringLiteral("Champion");
+        case 8: return QStringLiteral("High Champion");
+        case 9: return QStringLiteral("Legend");
+        case 10: return QStringLiteral("Immortal");
+        case 1:
+        default:
+            return QStringLiteral("Wanderer");
+    }
+}
+
+QPixmap lockBadgePixmap(int side) {
+    const int s = qMax(24, side);
+    QPixmap pix(s, s);
+    pix.fill(Qt::transparent);
+
+    QPainter painter(&pix);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QRectF outer(1.0, 1.0, s - 2.0, s - 2.0);
+    painter.setPen(QPen(QColor(255, 226, 168, 160), qMax(1.2, s / 20.0)));
+    painter.setBrush(QColor(20, 14, 10, 220));
+    painter.drawEllipse(outer);
+
+    const qreal shackleW = s * 0.34;
+    const qreal shackleH = s * 0.25;
+    const QRectF shackle((s - shackleW) * 0.5, s * 0.25, shackleW, shackleH);
+    painter.setPen(QPen(QColor("#F4D895"), qMax(1.4, s / 18.0)));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawArc(shackle, 0, 180 * 16);
+
+    const QRectF body(s * 0.30, s * 0.43, s * 0.40, s * 0.30);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#D4A017"));
+    painter.drawRoundedRect(body, s * 0.06, s * 0.06);
+
+    painter.setBrush(QColor(35, 23, 12, 210));
+    painter.drawEllipse(QRectF(s * 0.46, s * 0.53, s * 0.08, s * 0.08));
+    painter.end();
+    return pix;
 }
 
 class FlowLayout : public QLayout {
@@ -300,6 +500,55 @@ QPixmap createCinematicBackdrop(const QSize& size) {
     return bg;
 }
 
+QPixmap coverScaledPixmap(const QPixmap& source, const QSize& targetSize) {
+    if (source.isNull() || !targetSize.isValid()) {
+        return QPixmap();
+    }
+
+    const QPixmap scaled = source.scaled(targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    const QRect cropRect((scaled.width() - targetSize.width()) / 2,
+                         (scaled.height() - targetSize.height()) / 2,
+                         targetSize.width(),
+                         targetSize.height());
+    return scaled.copy(cropRect);
+}
+
+QString previewBackgroundPathForCharacter(const QString& name, const QString& imagePath) {
+    const QString resolvedImagePath = resolveAssetPath(imagePath);
+    if (!resolvedImagePath.isEmpty()) {
+        const QFileInfo imageInfo(resolvedImagePath);
+        const QString siblingPreview = imageInfo.dir().filePath(QStringLiteral("preview_bg.png"));
+        if (QFileInfo::exists(siblingPreview)) {
+            return siblingPreview;
+        }
+    }
+
+    const QString lowered = name.trimmed().toLower();
+    if (lowered.contains("arcen")) return resolveAssetPath(QStringLiteral("assets/players/Arcen/preview_bg.png"));
+    if (lowered.contains("demon slayer")) return resolveAssetPath(QStringLiteral("assets/players/Demon_Slayer/preview_bg.png"));
+    if (lowered.contains("fantasy")) return resolveAssetPath(QStringLiteral("assets/players/Fantasy_Warrior/preview_bg.png"));
+    if (lowered.contains("huntress")) return resolveAssetPath(QStringLiteral("assets/players/Huntress/preview_bg.png"));
+    if (lowered.contains("knight")) return resolveAssetPath(QStringLiteral("assets/players/Knight/preview_bg.png"));
+    if (lowered.contains("martial hero")) return resolveAssetPath(QStringLiteral("assets/players/Martial_Hero/preview_bg.png"));
+    if (lowered.contains("martial")) return resolveAssetPath(QStringLiteral("assets/players/Martial/preview_bg.png"));
+    if (lowered.contains("medieval")) return resolveAssetPath(QStringLiteral("assets/players/Medieval_Warrior/preview_bg.png"));
+    if (lowered.contains("wizard")) return resolveAssetPath(QStringLiteral("assets/players/Wizard/preview_bg.png"));
+    return QString();
+}
+
+QPixmap previewBackgroundPixmapForCharacter(const QString& name, const QString& imagePath, const QSize& targetSize) {
+    const QString backgroundPath = previewBackgroundPathForCharacter(name, imagePath);
+    if (!backgroundPath.isEmpty() && QFileInfo::exists(backgroundPath)) {
+        const QPixmap customBackground(backgroundPath);
+        const QPixmap fitted = coverScaledPixmap(customBackground, targetSize);
+        if (!fitted.isNull()) {
+            return fitted;
+        }
+    }
+
+    return createCinematicBackdrop(targetSize);
+}
+
 QPixmap createCharacterPlaceholder(const QSize& size, const QString& name) {
     QPixmap pix(size);
     pix.fill(Qt::transparent);
@@ -330,77 +579,164 @@ struct CharacterLobbyProfile {
     int control = 40;
 };
 
-CharacterLobbyProfile profileForCharacter(const QString& name, const QString& specialMove) {
+PlayerType playerTypeForLobbyName(const QString& name) {
     const QString lowered = name.trimmed().toLower();
+    if (lowered.contains("arcen")) return PlayerType::ARCEN;
+    if (lowered.contains("demon slayer")) return PlayerType::DEMON_SLAYER;
+    if (lowered.contains("fantasy")) return PlayerType::FANTASY_WARRIOR;
+    if (lowered.contains("huntress")) return PlayerType::HUNTRESS;
+    if (lowered.contains("martial hero")) return PlayerType::MARTIAL_HERO;
+    if (lowered.contains("martial")) return PlayerType::MARTIAL;
+    if (lowered.contains("medieval")) return PlayerType::MEDIEVAL_WARRIOR;
+    if (lowered.contains("wizard")) return PlayerType::WIZARD;
+    return PlayerType::KNIGHT;
+}
 
-    if (lowered.contains("arcen")) {
-        return {
-            "A precision archer who controls space before opponents ever reach him.",
-            {specialMove, "Charged ranged pressure", "Safe arena spacing"},
-            72, 18, 68, 82
-        };
+QString personalityLabel(FighterAiPersonality personality) {
+    switch (personality) {
+        case FighterAiPersonality::Balanced: return QStringLiteral("Balanced");
+        case FighterAiPersonality::Berserker: return QStringLiteral("Berserker");
+        case FighterAiPersonality::Duelist: return QStringLiteral("Duelist");
+        case FighterAiPersonality::Tank: return QStringLiteral("Tank");
+        case FighterAiPersonality::Skirmisher: return QStringLiteral("Skirmisher");
+        case FighterAiPersonality::Zoner: return QStringLiteral("Zoner");
+        case FighterAiPersonality::Trickster: return QStringLiteral("Trickster");
+        case FighterAiPersonality::Caster: return QStringLiteral("Caster");
     }
-    if (lowered.contains("demon slayer")) {
-        return {
-            "An aggressive duelist built to overwhelm enemies with direct melee pressure.",
-            {specialMove, "Close-range burst", "Relentless finisher chains"},
-            88, 10, 58, 44
-        };
+    return QStringLiteral("Balanced");
+}
+
+QString profileDescriptionFor(PlayerType type) {
+    switch (type) {
+        case PlayerType::ARCEN:
+            return QStringLiteral("A precision archer who holds long lanes with arrows that trade damage for reach.");
+        case PlayerType::DEMON_SLAYER:
+            return QStringLiteral("An infernal berserker who now pressures from fireball range before committing.");
+        case PlayerType::FANTASY_WARRIOR:
+            return QStringLiteral("A reliable duelist with balanced pressure, combo variety, and steady defense.");
+        case PlayerType::HUNTRESS:
+            return QStringLiteral("A fast skirmisher built around spacing, retreats, and clean re-entry attacks.");
+        case PlayerType::KNIGHT:
+            return QStringLiteral("A sturdy tank with disciplined melee, strong defense, and composed recovery.");
+        case PlayerType::MARTIAL:
+            return QStringLiteral("A close-range duelist who chains fast attacks and punishes missed openings.");
+        case PlayerType::MARTIAL_HERO:
+            return QStringLiteral("A mobile duelist with quick burst windows and flexible close combat.");
+        case PlayerType::MEDIEVAL_WARRIOR:
+            return QStringLiteral("A grounded bruiser who absorbs pressure and answers with measured heavy attacks.");
+        case PlayerType::WIZARD:
+            return QStringLiteral("A caster-style fighter who controls mid-range with deliberate attack timing.");
     }
-    if (lowered.contains("fantasy")) {
-        return {
-            "A reliable frontline fighter with balanced offense and a steady battle rhythm.",
-            {specialMove, "Balanced sword play", "Stable arena presence"},
-            70, 16, 56, 55
-        };
+    return QStringLiteral("A battle-ready contender prepared to adapt to any arena challenge.");
+}
+
+QString attackPatternFor(PlayerType type, int attackSlots) {
+    switch (type) {
+        case PlayerType::ARCEN:
+            return QStringLiteral("%1 attack states with a real, lower-damage arrow projectile.").arg(attackSlots);
+        case PlayerType::DEMON_SLAYER:
+            return QStringLiteral("%1 attack states with fireball pressure from range.").arg(attackSlots);
+        case PlayerType::WIZARD:
+            return QStringLiteral("%1 attack states; Attack 3 reuses the second spell animation.").arg(attackSlots);
+        case PlayerType::MARTIAL_HERO:
+            return QStringLiteral("%1 attack states; Attack 3 reuses the second combo animation.").arg(attackSlots);
+        default:
+            return QStringLiteral("%1 usable melee attack states.").arg(attackSlots);
     }
-    if (lowered.contains("huntress")) {
-        return {
-            "A fast skirmisher who wins by movement, timing, and clean disengages.",
-            {specialMove, "Agile repositioning", "Quick hit-and-run tempo"},
-            64, 14, 86, 61
-        };
+}
+
+QString projectileLineFor(PlayerType type, const FighterAiProfile& profile) {
+    if (!profile.hasProjectile) {
+        return QStringLiteral("Projectile: none in the current combat build.");
     }
-    if (lowered.contains("knight")) {
-        return {
-            "A disciplined defender with strong close combat fundamentals and composure.",
-            {specialMove, "Armored pressure", "Solid frontline defense"},
-            76, 12, 42, 60
-        };
+    if (type == PlayerType::ARCEN) {
+        return QStringLiteral("Projectile: arrow, triple-range reach with reduced hit damage.");
     }
-    if (lowered.contains("martial hero")) {
-        return {
-            "A flashy combo specialist who spikes damage when momentum is on his side.",
-            {specialMove, "Explosive combo routes", "Momentum-based offense"},
-            84, 8, 74, 52
-        };
+    if (type == PlayerType::DEMON_SLAYER) {
+        return QStringLiteral("Projectile: fireball, used before approaching.");
     }
-    if (lowered.contains("martial")) {
-        return {
-            "A rapid striker designed for chaining hits and never letting pressure drop.",
-            {specialMove, "Rapid close-range strings", "Fast recovery tempo"},
-            78, 6, 82, 48
-        };
+    return QStringLiteral("Projectile: enabled by fighter profile.");
+}
+
+QString projectileShortLabelFor(PlayerType type, const FighterAiProfile& profile) {
+    if (!profile.hasProjectile) {
+        return QStringLiteral("Melee");
     }
-    if (lowered.contains("medieval")) {
-        return {
-            "A grounded weapon master with heavier swings and deliberate battlefield control.",
-            {specialMove, "Heavy disciplined strikes", "Measured mid-range control"},
-            82, 12, 40, 57
-        };
+    if (type == PlayerType::ARCEN) {
+        return QStringLiteral("Arrow");
     }
-    if (lowered.contains("wizard")) {
-        return {
-            "A mystical specialist who bends pace with controlled pressure and support potential.",
-            {specialMove, "Arcane zone control", "High sustain potential"},
-            60, 80, 46, 74
-        };
+    if (type == PlayerType::DEMON_SLAYER) {
+        return QStringLiteral("Fireball");
     }
+    return QStringLiteral("Projectile");
+}
+
+QString tacticalNoteFor(PlayerType type, const FighterAiProfile& profile) {
+    if (type == PlayerType::ARCEN) {
+        return QStringLiteral("Keeps long lanes with lighter arrow damage, then resets spacing.");
+    }
+    if (type == PlayerType::DEMON_SLAYER) {
+        return QStringLiteral("Pressures from fireball range before rushing into heavy close attacks.");
+    }
+
+    switch (profile.personality) {
+        case FighterAiPersonality::Berserker:
+            return QStringLiteral("Wants fast pressure, but can be punished after overcommitting.");
+        case FighterAiPersonality::Tank:
+            return QStringLiteral("Absorbs pressure well and answers with steady close-range hits.");
+        case FighterAiPersonality::Skirmisher:
+            return QStringLiteral("Steps in and out often, looking for clean re-entry attacks.");
+        case FighterAiPersonality::Zoner:
+            return QStringLiteral("Controls space first and attacks when the opponent enters range.");
+        case FighterAiPersonality::Trickster:
+            return QStringLiteral("Baits whiffs, delays entries, and punishes careless approaches.");
+        case FighterAiPersonality::Caster:
+            return QStringLiteral("Prefers deliberate timing and mid-range control over frantic trades.");
+        case FighterAiPersonality::Duelist:
+            return QStringLiteral("Balanced footwork with sharp punish windows and combo pressure.");
+        case FighterAiPersonality::Balanced:
+        default:
+            return QStringLiteral("Reliable pressure with balanced range, recovery, and control.");
+    }
+}
+
+CharacterLobbyProfile profileForCharacter(const QString& name, const QString& specialMove) {
+    const PlayerType type = playerTypeForLobbyName(name);
+    const FighterAiProfile profile = fighterAiProfileFor(type);
+    const CharacterFeatureSet features = InputHandler::getCharacterFeatures(type);
+    const int attackSlots = qBound(1, qMax(profile.attackCount, features.attackOptions), 3);
+
+    QStringList abilities = {
+        attackPatternFor(type, attackSlots),
+        QStringLiteral("Personality: %1.").arg(personalityLabel(profile.personality)),
+        projectileLineFor(type, profile),
+        QStringLiteral("Ideal range: %1-%2 px.").arg(static_cast<int>(profile.idealMinRange)).arg(static_cast<int>(profile.idealMaxRange)),
+        QStringLiteral("Unlock tier: %1; ability tier: %2.").arg(profile.unlockTier).arg(profile.abilityTier)
+    };
+    if (!specialMove.trimmed().isEmpty() && specialMove != abilities.first()) {
+        abilities.insert(1, QStringLiteral("Style note: %1").arg(specialMove.trimmed()));
+    }
+
+    const int attack = qBound(20, static_cast<int>(42.0 + profile.aggression * 30.0 +
+                                                   profile.comboBias * 18.0 +
+                                                   profile.projectileBias * 12.0 +
+                                                   profile.abilityTier * 2.0), 100);
+    const int recovery = qBound(12, static_cast<int>(24.0 + profile.defense * 34.0 +
+                                                     profile.retreatBias * 24.0), 100);
+    const int mobility = qBound(18, static_cast<int>(28.0 + profile.movementBias * 24.0 +
+                                                     profile.spacing * 30.0 +
+                                                     profile.retreatBias * 16.0), 100);
+    const int control = qBound(18, static_cast<int>(28.0 + profile.spacing * 36.0 +
+                                                    profile.projectileBias * 24.0 +
+                                                    profile.punishBias * 18.0), 100);
 
     return {
-        "A battle-ready contender prepared to adapt to any arena challenge.",
-        {specialMove.isEmpty() ? "Adaptive combat pattern" : specialMove, "Flexible role coverage"},
-        60, 20, 50, 50
+        profileDescriptionFor(type),
+        abilities,
+        attack,
+        recovery,
+        mobility,
+        control
     };
 }
 
@@ -482,10 +818,32 @@ ProfileLobbyWidget::ProfileLobbyWidget(QWidget* parent)
       lobbySummaryRankLabel_(nullptr),
       lobbySummaryScoreLabel_(nullptr),
       lobbySummaryBadgeLabel_(nullptr),
+      rankUpgradeOverlay_(nullptr),
+      rankUpgradePanel_(nullptr),
+      rankUpgradeEyebrowLabel_(nullptr),
+      rankUpgradeTitleLabel_(nullptr),
+      rankUpgradeBodyLabel_(nullptr),
+      rankUpgradeBadgeRowWidget_(nullptr),
+      rankUpgradeArrowLabel_(nullptr),
+      rankUpgradeOldRankLabel_(nullptr),
+      rankUpgradeNewRankLabel_(nullptr),
+      rankUpgradeOldBadgeLabel_(nullptr),
+      rankUpgradeNewBadgeLabel_(nullptr),
+      rankUpgradeHintLabel_(nullptr),
+      characterUnlockView_(nullptr),
+      characterUnlockScene_(nullptr),
+      characterUnlockGlowItem_(nullptr),
+      characterUnlockPortraitItem_(nullptr),
+      characterUnlockFighterItem_(nullptr),
       previewPortraitLabel_(nullptr),
       previewDescriptionLabel_(nullptr),
       previewMoveLabel_(nullptr),
       previewAbilitiesLabel_(nullptr),
+      previewRoleChipLabel_(nullptr),
+      previewAttacksChipLabel_(nullptr),
+      previewRangeChipLabel_(nullptr),
+      previewProjectileChipLabel_(nullptr),
+      previewUnlockChipLabel_(nullptr),
       previewHintLabel_(nullptr),
       attackPowerBar_(nullptr),
       healPowerBar_(nullptr),
@@ -494,8 +852,11 @@ ProfileLobbyWidget::ProfileLobbyWidget(QWidget* parent)
       characterView_(nullptr),
       previewScene_(nullptr),
       sceneBackgroundItem_(nullptr),
+      sceneLockDimItem_(nullptr),
       characterItem_(nullptr),
       glowItem_(nullptr),
+      characterLockItem_(nullptr),
+      characterLockTextItem_(nullptr),
       fallbackTextItem_(nullptr),
       modeScrollArea_(nullptr),
       modeContainer_(nullptr),
@@ -511,17 +872,22 @@ ProfileLobbyWidget::ProfileLobbyWidget(QWidget* parent)
       arenaPicker_(nullptr),
       duelSetupLabel_(nullptr),
       hoverGlowAnimation_(nullptr),
+      rankUpgradeOverlayAnimation_(nullptr),
+      characterUnlockRevealAnimation_(nullptr),
       enterArenaGlowEffect_(nullptr),
       idleAnimationTimer_(new QTimer(this)),
       idleFrameIndex_(0),
       showcasingAttack_(false),
-      idleShowcaseElapsedMs_(0) {
+      idleShowcaseElapsedMs_(0),
+      rankUpgradeOverlayClosing_(false),
+      showingCharacterUnlockPopup_(false),
+      characterUnlockClaimReady_(true) {
     setAttribute(Qt::WA_StyledBackground, true);
     setObjectName("profileLobbyRoot");
     setCursor(Qt::ArrowCursor);
 
-    userProfile_ = {"Player_01", 0, "Rookie", QString()};
-    selectedCharacter_ = {"Demon Slayer", QString(), "Slash Combo"};
+    userProfile_ = {"Player_01", 0, "Wanderer", QString()};
+    selectedCharacter_ = {"Demon Slayer", QString(), "Infernal blade style with ranged fireball pressure."};
     selectedModeName_ = kPlayableLobbyMode;
     duelSetup_ = {"Random", "Player", QString(), "Colosseum"};
 
@@ -559,6 +925,474 @@ void ProfileLobbyWidget::setupUi() {
     rootLayout->setStretch(2, 0);
 
     setLayout(rootLayout);
+    setupRankUpgradeOverlay();
+}
+
+void ProfileLobbyWidget::setupRankUpgradeOverlay() {
+    rankUpgradeOverlay_ = new QWidget(this);
+    rankUpgradeOverlay_->setObjectName("rankUpgradeOverlay");
+    rankUpgradeOverlay_->setAttribute(Qt::WA_StyledBackground, true);
+    rankUpgradeOverlay_->setFocusPolicy(Qt::StrongFocus);
+    rankUpgradeOverlay_->setStyleSheet(
+        "QWidget#rankUpgradeOverlay {"
+        " background: rgba(5, 4, 3, 152);"
+        "}"
+    );
+    rankUpgradeOverlay_->hide();
+    rankUpgradeOverlay_->installEventFilter(this);
+
+    auto* overlayEffect = new QGraphicsOpacityEffect(rankUpgradeOverlay_);
+    overlayEffect->setOpacity(0.0);
+    rankUpgradeOverlay_->setGraphicsEffect(overlayEffect);
+
+    auto* overlayLayout = new QVBoxLayout(rankUpgradeOverlay_);
+    overlayLayout->setContentsMargins(36, 36, 36, 36);
+    overlayLayout->setAlignment(Qt::AlignCenter);
+
+    rankUpgradePanel_ = new QFrame(rankUpgradeOverlay_);
+    rankUpgradePanel_->setObjectName("rankUpgradePanel");
+    rankUpgradePanel_->setMinimumWidth(620);
+    rankUpgradePanel_->setMaximumWidth(720);
+    rankUpgradePanel_->setStyleSheet(
+        "QFrame#rankUpgradePanel {"
+        " background: rgba(26, 17, 12, 224);"
+        " border: 1px solid rgba(226, 170, 81, 0.66);"
+        " border-radius: 28px;"
+        "}"
+        "QLabel#rankUpgradeEyebrow { color:rgba(245,213,143,0.72); font:800 11px 'Segoe UI'; letter-spacing:2px; }"
+        "QLabel#rankUpgradeTitle { color:#FFF0C6; font:900 35px 'Segoe UI'; letter-spacing:1.5px; }"
+        "QLabel#rankUpgradeBody { color:rgba(245,230,184,0.84); font:13px 'Segoe UI'; }"
+        "QLabel#rankUpgradeOldBadge, QLabel#rankUpgradeNewBadge {"
+        " color:rgba(245,230,184,0.82);"
+        " background: rgba(8, 7, 6, 0.34);"
+        " border: 1px solid rgba(212, 160, 23, 0.24);"
+        " border-radius: 22px;"
+        "}"
+        "QLabel#rankUpgradeOldRank {"
+        " color:rgba(245,230,184,0.72);"
+        " font:900 15px 'Segoe UI';"
+        " letter-spacing:1.1px;"
+        "}"
+        "QLabel#rankUpgradeNewRank {"
+        " color:#FFD36A;"
+        " font:900 24px 'Segoe UI';"
+        " letter-spacing:1.1px;"
+        "}"
+        "QLabel#rankUpgradeArrow { color:#E5B95B; font:900 28px 'Segoe UI'; }"
+        "QLabel#rankUpgradeHint {"
+        " color:#FFF2D4;"
+        " background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #8C1111, stop:1 #E1502C);"
+        " border: 2px solid rgba(255, 187, 140, 0.88);"
+        " border-radius: 14px;"
+        " padding: 12px 18px;"
+        " font:800 14px 'Segoe UI';"
+        "}"
+    );
+    rankUpgradePanel_->installEventFilter(this);
+
+    auto* shadow = new QGraphicsDropShadowEffect(rankUpgradePanel_);
+    shadow->setBlurRadius(38.0);
+    shadow->setOffset(0.0, 18.0);
+    shadow->setColor(QColor(0, 0, 0, 168));
+    rankUpgradePanel_->setGraphicsEffect(shadow);
+
+    auto* panelLayout = new QVBoxLayout(rankUpgradePanel_);
+    panelLayout->setContentsMargins(38, 32, 38, 32);
+    panelLayout->setSpacing(16);
+
+    rankUpgradeEyebrowLabel_ = new QLabel("NEW TITLE UNLOCKED", rankUpgradePanel_);
+    rankUpgradeEyebrowLabel_->setObjectName("rankUpgradeEyebrow");
+    rankUpgradeEyebrowLabel_->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(rankUpgradeEyebrowLabel_);
+
+    rankUpgradeTitleLabel_ = new QLabel("RANK UPGRADED", rankUpgradePanel_);
+    rankUpgradeTitleLabel_->setObjectName("rankUpgradeTitle");
+    rankUpgradeTitleLabel_->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(rankUpgradeTitleLabel_);
+
+    rankUpgradeBadgeRowWidget_ = new QWidget(rankUpgradePanel_);
+    auto* badgeRow = new QHBoxLayout(rankUpgradeBadgeRowWidget_);
+    badgeRow->setContentsMargins(0, 0, 0, 0);
+    badgeRow->setSpacing(22);
+
+    auto* oldRankStack = new QVBoxLayout();
+    oldRankStack->setSpacing(8);
+    rankUpgradeOldBadgeLabel_ = new QLabel(rankUpgradePanel_);
+    rankUpgradeOldBadgeLabel_->setObjectName("rankUpgradeOldBadge");
+    rankUpgradeOldBadgeLabel_->setFixedSize(138, 138);
+    rankUpgradeOldBadgeLabel_->setAlignment(Qt::AlignCenter);
+    rankUpgradeOldBadgeLabel_->setScaledContents(false);
+    oldRankStack->addWidget(rankUpgradeOldBadgeLabel_, 0, Qt::AlignHCenter);
+
+    rankUpgradeOldRankLabel_ = new QLabel(rankUpgradePanel_);
+    rankUpgradeOldRankLabel_->setObjectName("rankUpgradeOldRank");
+    rankUpgradeOldRankLabel_->setAlignment(Qt::AlignCenter);
+    oldRankStack->addWidget(rankUpgradeOldRankLabel_);
+    badgeRow->addLayout(oldRankStack, 1);
+
+    rankUpgradeArrowLabel_ = new QLabel("->", rankUpgradePanel_);
+    rankUpgradeArrowLabel_->setObjectName("rankUpgradeArrow");
+    rankUpgradeArrowLabel_->setAlignment(Qt::AlignCenter);
+    badgeRow->addWidget(rankUpgradeArrowLabel_, 0, Qt::AlignVCenter);
+
+    auto* newRankStack = new QVBoxLayout();
+    newRankStack->setSpacing(8);
+    rankUpgradeNewBadgeLabel_ = new QLabel(rankUpgradePanel_);
+    rankUpgradeNewBadgeLabel_->setObjectName("rankUpgradeNewBadge");
+    rankUpgradeNewBadgeLabel_->setFixedSize(198, 198);
+    rankUpgradeNewBadgeLabel_->setAlignment(Qt::AlignCenter);
+    rankUpgradeNewBadgeLabel_->setScaledContents(false);
+    newRankStack->addWidget(rankUpgradeNewBadgeLabel_, 0, Qt::AlignHCenter);
+
+    rankUpgradeNewRankLabel_ = new QLabel(rankUpgradePanel_);
+    rankUpgradeNewRankLabel_->setObjectName("rankUpgradeNewRank");
+    rankUpgradeNewRankLabel_->setAlignment(Qt::AlignCenter);
+    newRankStack->addWidget(rankUpgradeNewRankLabel_);
+    badgeRow->addLayout(newRankStack, 1);
+
+    panelLayout->addWidget(rankUpgradeBadgeRowWidget_);
+
+    characterUnlockView_ = new QGraphicsView(rankUpgradePanel_);
+    characterUnlockView_->setFixedSize(560, 340);
+    characterUnlockView_->setFrameShape(QFrame::NoFrame);
+    characterUnlockView_->setRenderHint(QPainter::Antialiasing, true);
+    characterUnlockView_->setRenderHint(QPainter::SmoothPixmapTransform, true);
+    characterUnlockView_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    characterUnlockView_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    characterUnlockView_->setStyleSheet("background: transparent; border: 0;");
+    characterUnlockView_->hide();
+
+    characterUnlockScene_ = new QGraphicsScene(characterUnlockView_);
+    characterUnlockScene_->setSceneRect(0, 0, 560, 340);
+    characterUnlockScene_->setBackgroundBrush(Qt::transparent);
+    characterUnlockView_->setScene(characterUnlockScene_);
+
+    characterUnlockGlowItem_ = characterUnlockScene_->addPixmap(createGoldGlowPixmap(310));
+    characterUnlockGlowItem_->setZValue(-2.0);
+    characterUnlockGlowItem_->setOpacity(0.0);
+
+    characterUnlockPortraitItem_ = characterUnlockScene_->addPixmap(QPixmap());
+    characterUnlockPortraitItem_->setZValue(2.0);
+    auto* portraitShadow = new QGraphicsDropShadowEffect(this);
+    portraitShadow->setBlurRadius(44.0);
+    portraitShadow->setOffset(0.0, 18.0);
+    portraitShadow->setColor(QColor(0, 0, 0, 170));
+    characterUnlockPortraitItem_->setGraphicsEffect(portraitShadow);
+
+    characterUnlockFighterItem_ = characterUnlockScene_->addPixmap(QPixmap());
+    characterUnlockFighterItem_->setZValue(3.0);
+    characterUnlockFighterItem_->setOpacity(0.0);
+
+    panelLayout->addWidget(characterUnlockView_, 0, Qt::AlignHCenter);
+
+    rankUpgradeBodyLabel_ = new QLabel(rankUpgradePanel_);
+    rankUpgradeBodyLabel_->setObjectName("rankUpgradeBody");
+    rankUpgradeBodyLabel_->setWordWrap(true);
+    rankUpgradeBodyLabel_->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(rankUpgradeBodyLabel_);
+
+    rankUpgradeHintLabel_ = new QLabel("PRESS SPACE TO CLAIM", rankUpgradePanel_);
+    rankUpgradeHintLabel_->setObjectName("rankUpgradeHint");
+    rankUpgradeHintLabel_->setAlignment(Qt::AlignCenter);
+    panelLayout->addWidget(rankUpgradeHintLabel_);
+
+    overlayLayout->addWidget(rankUpgradePanel_, 0, Qt::AlignCenter);
+
+    rankUpgradeOverlayAnimation_ = new QVariantAnimation(this);
+    rankUpgradeOverlayAnimation_->setDuration(260);
+    rankUpgradeOverlayAnimation_->setEasingCurve(QEasingCurve::OutCubic);
+    connect(rankUpgradeOverlayAnimation_, &QVariantAnimation::valueChanged, this, [overlayEffect](const QVariant& value) {
+        overlayEffect->setOpacity(value.toReal());
+    });
+    connect(rankUpgradeOverlayAnimation_, &QVariantAnimation::finished, this, [this]() {
+        if (rankUpgradeOverlayClosing_ && rankUpgradeOverlay_) {
+            rankUpgradeOverlay_->hide();
+            if (characterUnlockRevealAnimation_) {
+                characterUnlockRevealAnimation_->stop();
+            }
+            if (characterUnlockView_) {
+                characterUnlockView_->hide();
+            }
+            if (rankUpgradeBadgeRowWidget_) {
+                rankUpgradeBadgeRowWidget_->show();
+            }
+            showingCharacterUnlockPopup_ = false;
+            characterUnlockClaimReady_ = true;
+            if (!pendingCharacterUnlockName_.trimmed().isEmpty()) {
+                const QString characterName = pendingCharacterUnlockName_;
+                const QString rankName = pendingCharacterUnlockRank_;
+                const QString imagePath = pendingCharacterUnlockImagePath_;
+                pendingCharacterUnlockName_.clear();
+                pendingCharacterUnlockRank_.clear();
+                pendingCharacterUnlockImagePath_.clear();
+                QTimer::singleShot(90, this, [this, characterName, rankName, imagePath]() {
+                    showCharacterUnlockPopup(characterName, rankName, imagePath);
+                });
+            }
+        }
+    });
+
+    characterUnlockRevealAnimation_ = new QVariantAnimation(this);
+    characterUnlockRevealAnimation_->setDuration(kCharacterUnlockRevealMs);
+    characterUnlockRevealAnimation_->setStartValue(0.0);
+    characterUnlockRevealAnimation_->setEndValue(1.0);
+    characterUnlockRevealAnimation_->setEasingCurve(QEasingCurve::Linear);
+    connect(characterUnlockRevealAnimation_, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+        updateCharacterUnlockReveal(value.toReal());
+    });
+    connect(characterUnlockRevealAnimation_, &QVariantAnimation::finished, this, [this]() {
+        updateCharacterUnlockReveal(1.0);
+        characterUnlockClaimReady_ = true;
+        if (rankUpgradeHintLabel_) {
+            rankUpgradeHintLabel_->show();
+        }
+        if (rankUpgradeOverlay_) {
+            rankUpgradeOverlay_->setFocus(Qt::OtherFocusReason);
+        }
+    });
+
+    syncRankUpgradeOverlay();
+}
+
+void ProfileLobbyWidget::prepareCharacterUnlockReveal(const QString& characterName, const QString& imagePath) {
+    characterUnlockIdleFrames_.clear();
+
+    if (!characterUnlockScene_ || !characterUnlockPortraitItem_ || !characterUnlockFighterItem_) {
+        return;
+    }
+
+    const QString resolvedImagePath = resolveAssetPath(imagePath);
+    const QString portraitPath = profilePortraitPathForCharacter(characterName, resolvedImagePath);
+    QPixmap portrait(!portraitPath.isEmpty() ? portraitPath : resolvedImagePath);
+    QPixmap portraitPixmap = circularPortraitPixmap(portrait, QSize(220, 220));
+    if (portraitPixmap.isNull()) {
+        portraitPixmap = createCharacterPlaceholder(QSize(220, 220), characterName);
+    }
+
+    characterUnlockPortraitItem_->setPixmap(portraitPixmap);
+    characterUnlockPortraitItem_->setTransformOriginPoint(characterUnlockPortraitItem_->boundingRect().center());
+
+    const LobbyAnimationSpec spec = animationSpecForCharacterName(characterName);
+    const QFileInfo imageInfo(resolvedImagePath);
+    const QString idleSpritePath = spec.idlePath.isEmpty()
+        ? QString()
+        : imageInfo.dir().filePath(spec.idlePath);
+    characterUnlockIdleFrames_ = extractFramesFromSheet(idleSpritePath, spec.idleFrameCount);
+
+    QPixmap fighterFrame = characterUnlockIdleFrames_.isEmpty()
+        ? QPixmap(resolvedImagePath)
+        : characterUnlockIdleFrames_.first();
+    if (fighterFrame.isNull()) {
+        fighterFrame = createCharacterPlaceholder(QSize(220, 260), characterName);
+    }
+
+    characterUnlockFighterItem_->setPixmap(fighterFrame);
+    characterUnlockFighterItem_->setTransformOriginPoint(characterUnlockFighterItem_->boundingRect().center());
+    updateCharacterUnlockReveal(0.0);
+}
+
+void ProfileLobbyWidget::updateCharacterUnlockReveal(qreal progress) {
+    if (!characterUnlockScene_ || !characterUnlockPortraitItem_ || !characterUnlockFighterItem_) {
+        return;
+    }
+
+    const QRectF sceneRect = characterUnlockScene_->sceneRect();
+    const QPointF center(sceneRect.width() * 0.5, sceneRect.height() * 0.52);
+
+    if (characterUnlockGlowItem_) {
+        const qreal glowRamp = smoothStep(scaledBetween(0.0, 0.30, progress));
+        const qreal glowFade = 1.0 - smoothStep(scaledBetween(0.40, 0.70, progress));
+        const qreal fighterGlow = smoothStep(scaledBetween(0.58, 0.82, progress)) * 0.34;
+        const qreal glowOpacity = qMax(glowRamp * glowFade * 0.82, fighterGlow);
+        characterUnlockGlowItem_->setOpacity(glowOpacity);
+        characterUnlockGlowItem_->setScale(0.82 + smoothStep(progress) * 0.32);
+        const QRectF glowBounds = characterUnlockGlowItem_->boundingRect();
+        characterUnlockGlowItem_->setPos(center.x() - glowBounds.width() * characterUnlockGlowItem_->scale() * 0.5,
+                                         center.y() - glowBounds.height() * characterUnlockGlowItem_->scale() * 0.5);
+    }
+
+    const QRectF portraitBounds = characterUnlockPortraitItem_->boundingRect();
+    const qreal portraitIn = smoothStep(scaledBetween(0.0, 0.32, progress));
+    const qreal portraitOut = 1.0 - smoothStep(scaledBetween(0.42, 0.62, progress));
+    const qreal portraitScale = 0.36 + portraitIn * 0.82 + smoothStep(scaledBetween(0.32, 0.42, progress)) * 0.06;
+    characterUnlockPortraitItem_->setOpacity(qBound(0.0, portraitOut, 1.0));
+    characterUnlockPortraitItem_->setScale(portraitScale);
+    characterUnlockPortraitItem_->setPos(center.x() - portraitBounds.width() * 0.5,
+                                         center.y() - portraitBounds.height() * 0.5);
+    characterUnlockPortraitItem_->setVisible(characterUnlockPortraitItem_->opacity() > 0.02);
+
+    if (!characterUnlockIdleFrames_.isEmpty()) {
+        const qreal revealProgress = scaledBetween(0.56, 1.0, progress);
+        const int frameIndex = qBound(0,
+                                      static_cast<int>((revealProgress * kCharacterUnlockRevealMs) / 110.0) % characterUnlockIdleFrames_.size(),
+                                      characterUnlockIdleFrames_.size() - 1);
+        characterUnlockFighterItem_->setPixmap(characterUnlockIdleFrames_.at(frameIndex));
+    }
+
+    const QRectF fighterBounds = characterUnlockFighterItem_->boundingRect();
+    const qreal fighterIn = smoothStep(scaledBetween(0.52, 0.78, progress));
+    const qreal maxFighterWidth = sceneRect.width() * 0.52;
+    const qreal maxFighterHeight = sceneRect.height() * 0.74;
+    const qreal fighterScale = qMin(maxFighterWidth / qMax(1.0, fighterBounds.width()),
+                                    maxFighterHeight / qMax(1.0, fighterBounds.height()));
+    characterUnlockFighterItem_->setOpacity(fighterIn);
+    characterUnlockFighterItem_->setScale(fighterScale * (0.88 + fighterIn * 0.12));
+    characterUnlockFighterItem_->setPos(center.x() - fighterBounds.width() * 0.5,
+                                        sceneRect.height() * 0.86 - fighterBounds.height() * 0.5);
+    characterUnlockFighterItem_->setVisible(fighterIn > 0.02);
+}
+
+void ProfileLobbyWidget::showRankUpgradePopup(const QString& previousRank, const QString& newRank) {
+    if (!rankUpgradeOverlay_ || previousRank.trimmed().isEmpty() || newRank.trimmed().isEmpty()
+        || previousRank.compare(newRank, Qt::CaseInsensitive) == 0) {
+        return;
+    }
+
+    const QString oldRank = previousRank.trimmed();
+    const QString upgradedRank = newRank.trimmed();
+    showingCharacterUnlockPopup_ = false;
+    characterUnlockClaimReady_ = true;
+    if (characterUnlockRevealAnimation_) {
+        characterUnlockRevealAnimation_->stop();
+    }
+    if (characterUnlockView_) {
+        characterUnlockView_->hide();
+    }
+    if (rankUpgradeBadgeRowWidget_) {
+        rankUpgradeBadgeRowWidget_->show();
+    }
+    if (rankUpgradeEyebrowLabel_) {
+        rankUpgradeEyebrowLabel_->setText(QStringLiteral("NEW TITLE UNLOCKED"));
+    }
+    if (rankUpgradeHintLabel_) {
+        rankUpgradeHintLabel_->show();
+    }
+
+    rankUpgradeOldRankLabel_->setText(oldRank.toUpper());
+    rankUpgradeNewRankLabel_->setText(upgradedRank.toUpper());
+    rankUpgradeOldRankLabel_->show();
+    rankUpgradeNewRankLabel_->show();
+    rankUpgradeOldBadgeLabel_->show();
+    rankUpgradeNewBadgeLabel_->show();
+    if (rankUpgradeArrowLabel_) {
+        rankUpgradeArrowLabel_->show();
+    }
+    rankUpgradeTitleLabel_->setText(QStringLiteral("RANK UPGRADED"));
+    rankUpgradeHintLabel_->setText(QStringLiteral("PRESS SPACE TO CLAIM"));
+    rankUpgradeBodyLabel_->setText(QStringLiteral("Your arena record has advanced from %1 to %2. Claim the title and carry it into the next battle.")
+                                       .arg(oldRank, upgradedRank));
+
+    const QPixmap oldBadge = rankBadgePixmap(oldRank, 126);
+    rankUpgradeOldBadgeLabel_->setPixmap(oldBadge);
+    rankUpgradeOldBadgeLabel_->setText(oldBadge.isNull() ? oldRank : QString());
+
+    const QPixmap newBadge = rankBadgePixmap(upgradedRank, 186);
+    rankUpgradeNewBadgeLabel_->setPixmap(newBadge);
+    rankUpgradeNewBadgeLabel_->setText(newBadge.isNull() ? upgradedRank : QString());
+
+    syncRankUpgradeOverlay();
+    rankUpgradeOverlayClosing_ = false;
+    rankUpgradeOverlay_->show();
+    rankUpgradeOverlay_->raise();
+    rankUpgradeOverlay_->setFocus(Qt::OtherFocusReason);
+
+    if (rankUpgradeOverlayAnimation_) {
+        rankUpgradeOverlayAnimation_->stop();
+        rankUpgradeOverlayAnimation_->setStartValue(0.0);
+        rankUpgradeOverlayAnimation_->setEndValue(1.0);
+        rankUpgradeOverlayAnimation_->start();
+    }
+}
+
+void ProfileLobbyWidget::showCharacterUnlockPopup(const QString& characterName,
+                                                  const QString& rankName,
+                                                  const QString& imagePath) {
+    if (!rankUpgradeOverlay_ || characterName.trimmed().isEmpty()) {
+        return;
+    }
+    Q_UNUSED(rankName);
+
+    if (rankUpgradeOverlay_->isVisible() && !rankUpgradeOverlayClosing_) {
+        pendingCharacterUnlockName_ = characterName;
+        pendingCharacterUnlockRank_ = rankName;
+        pendingCharacterUnlockImagePath_ = imagePath;
+        return;
+    }
+
+    const QString fighterName = characterName.trimmed();
+    showingCharacterUnlockPopup_ = true;
+    characterUnlockClaimReady_ = false;
+
+    if (rankUpgradeEyebrowLabel_) {
+        rankUpgradeEyebrowLabel_->setText(QStringLiteral("FIGHTER UNLOCKED"));
+    }
+    if (rankUpgradeBadgeRowWidget_) {
+        rankUpgradeBadgeRowWidget_->hide();
+    }
+    if (characterUnlockView_) {
+        characterUnlockView_->show();
+    }
+
+    rankUpgradeTitleLabel_->setText(QStringLiteral("YOU UNLOCKED %1").arg(fighterName.toUpper()));
+    rankUpgradeBodyLabel_->setText(QStringLiteral("%1 has joined your roster. Watch the reveal, then claim the fighter when the prompt appears.")
+                                       .arg(fighterName));
+    rankUpgradeHintLabel_->setText(QStringLiteral("PRESS SPACE TO CLAIM"));
+    rankUpgradeHintLabel_->hide();
+
+    prepareCharacterUnlockReveal(fighterName, imagePath);
+    if (characterUnlockRevealAnimation_) {
+        characterUnlockRevealAnimation_->stop();
+        characterUnlockRevealAnimation_->setStartValue(0.0);
+        characterUnlockRevealAnimation_->setEndValue(1.0);
+        characterUnlockRevealAnimation_->setDuration(kCharacterUnlockRevealMs);
+    }
+
+    syncRankUpgradeOverlay();
+    rankUpgradeOverlayClosing_ = false;
+    rankUpgradeOverlay_->show();
+    rankUpgradeOverlay_->raise();
+    rankUpgradeOverlay_->setFocus(Qt::OtherFocusReason);
+
+    if (rankUpgradeOverlayAnimation_) {
+        rankUpgradeOverlayAnimation_->stop();
+        rankUpgradeOverlayAnimation_->setStartValue(0.0);
+        rankUpgradeOverlayAnimation_->setEndValue(1.0);
+        rankUpgradeOverlayAnimation_->start();
+    }
+    if (characterUnlockRevealAnimation_) {
+        characterUnlockRevealAnimation_->start();
+    }
+}
+
+void ProfileLobbyWidget::claimRankUpgradePopup() {
+    if (!rankUpgradeOverlay_ || !rankUpgradeOverlay_->isVisible()) {
+        return;
+    }
+    if (showingCharacterUnlockPopup_ && !characterUnlockClaimReady_) {
+        return;
+    }
+
+    rankUpgradeOverlayClosing_ = true;
+    if (characterUnlockRevealAnimation_) {
+        characterUnlockRevealAnimation_->stop();
+    }
+    if (rankUpgradeOverlayAnimation_) {
+        rankUpgradeOverlayAnimation_->stop();
+        rankUpgradeOverlayAnimation_->setStartValue(1.0);
+        rankUpgradeOverlayAnimation_->setEndValue(0.0);
+        rankUpgradeOverlayAnimation_->start();
+        return;
+    }
+
+    rankUpgradeOverlay_->hide();
+}
+
+void ProfileLobbyWidget::syncRankUpgradeOverlay() {
+    if (!rankUpgradeOverlay_) {
+        return;
+    }
+
+    rankUpgradeOverlay_->setGeometry(rect());
 }
 
 void ProfileLobbyWidget::setupHeader(QBoxLayout* rootLayout) {
@@ -574,70 +1408,74 @@ void ProfileLobbyWidget::setupHeader(QBoxLayout* rootLayout) {
     );
 
     auto* headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(24, 16, 24, 16);
-    headerLayout->setSpacing(18);
+    headerLayout->setContentsMargins(24, 8, 24, 8);
+    headerLayout->setSpacing(22);
 
     auto* brandWrap = new QWidget(header);
-    auto* brandLayout = new QVBoxLayout(brandWrap);
+    brandWrap->setFixedWidth(320);
+    auto* brandLayout = new QHBoxLayout(brandWrap);
     brandLayout->setContentsMargins(0, 0, 0, 0);
-    brandLayout->setSpacing(2);
 
     logoLabel_ = new QLabel(brandWrap);
+    logoLabel_->setFixedSize(300, 96);
+    logoLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     const QPixmap logoPixmap(resolveAssetPath("assets/backgrounds/logo.png"));
     if (!logoPixmap.isNull()) {
-        logoLabel_->setPixmap(logoPixmap.scaled(250, 62, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        logoLabel_->setPixmap(logoPixmap.scaled(300, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation));
         logoLabel_->setStyleSheet("background: transparent;");
     } else {
         logoLabel_->setText("GLADIATORS");
         logoLabel_->setStyleSheet("color:#F0C96C; font: 900 34px 'Segoe UI'; letter-spacing: 2px;");
     }
-    brandLayout->addWidget(logoLabel_);
+    brandLayout->addWidget(logoLabel_, 0, Qt::AlignLeft | Qt::AlignVCenter);
 
-    auto* subtitleLabel = new QLabel("Forge your fighter, choose your ruleset, enter the arena.", brandWrap);
-    subtitleLabel->setStyleSheet("color:rgba(245,230,184,0.78); font: 12px 'Segoe UI'; letter-spacing: 0.4px;");
-    brandLayout->addWidget(subtitleLabel);
-
-    headerLayout->addWidget(brandWrap, 1, Qt::AlignVCenter | Qt::AlignLeft);
+    headerLayout->addWidget(brandWrap, 0, Qt::AlignVCenter | Qt::AlignLeft);
 
     auto* centerWrap = new QWidget(header);
-    auto* centerLayout = new QHBoxLayout(centerWrap);
+    auto* centerLayout = new QVBoxLayout(centerWrap);
     centerLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->setSpacing(14);
+    centerLayout->setSpacing(4);
 
-    usernameLabel_ = new QLabel(centerWrap);
-    usernameLabel_->setCursor(Qt::PointingHandCursor);
-    usernameLabel_->setStyleSheet(
-        "color:#FFF0C6; font: 700 16px 'Segoe UI';"
-        "padding:7px 12px; border-radius:11px;"
-        "background:rgba(212,160,23,0.10);"
-        "border:1px solid rgba(212,160,23,0.24);"
+    auto* subtitleLabel = new QLabel("Forge your fighter, choose your ruleset, enter the arena.", centerWrap);
+    subtitleLabel->setAlignment(Qt::AlignCenter);
+    subtitleLabel->setStyleSheet(
+        "color:#F7E4B4;"
+        "font: italic 800 20px 'Georgia';"
+        "letter-spacing:0.7px;"
+        "background:transparent;"
     );
-    usernameLabel_->installEventFilter(this);
-    centerLayout->addWidget(usernameLabel_);
+    centerLayout->addWidget(subtitleLabel, 0, Qt::AlignCenter);
 
-    scoreLabel_ = new QLabel(centerWrap);
-    scoreLabel_->setStyleSheet(
-        "color:#EED9A3; font:700 13px 'Segoe UI';"
-        "padding:7px 12px; border-radius:11px;"
-        "background:rgba(140,28,28,0.30);"
-        "border:1px solid rgba(218,105,71,0.34);"
+    auto* subtitleAccent = new QLabel("Choose with purpose. Fight with honor.", centerWrap);
+    subtitleAccent->setAlignment(Qt::AlignCenter);
+    subtitleAccent->setStyleSheet(
+        "color:rgba(212,160,23,0.72);"
+        "font:700 10px 'Segoe UI';"
+        "letter-spacing:2.4px;"
+        "background:transparent;"
     );
-    centerLayout->addWidget(scoreLabel_);
+    centerLayout->addWidget(subtitleAccent, 0, Qt::AlignCenter);
 
-    badgeLabel_ = new QLabel(centerWrap);
-    badgeLabel_->setStyleSheet(
-        "color:#F5E6B8; font:700 13px 'Segoe UI';"
-        "padding:7px 12px; border-radius:11px;"
-        "background:rgba(212,160,23,0.14);"
-    );
-    centerLayout->addWidget(badgeLabel_);
-
-    headerLayout->addWidget(centerWrap, 0, Qt::AlignCenter);
+    headerLayout->addWidget(centerWrap, 1, Qt::AlignCenter);
 
     auto* rightWrap = new QWidget(header);
+    rightWrap->setFixedWidth(320);
     auto* rightLayout = new QHBoxLayout(rightWrap);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(10);
+    rightLayout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    usernameLabel_ = new QLabel(rightWrap);
+    usernameLabel_->setCursor(Qt::PointingHandCursor);
+    usernameLabel_->setStyleSheet(
+        "color:#FFF2CF; font: 900 17px 'Segoe UI';"
+        "padding:9px 18px; border-radius:17px;"
+        "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(80,55,28,0.92), stop:1 rgba(37,28,21,0.88));"
+        "border:1px solid rgba(226,176,82,0.48);"
+        "letter-spacing:0.3px;"
+    );
+    usernameLabel_->installEventFilter(this);
+    rightLayout->addWidget(usernameLabel_);
 
     avatarLabel_ = new QLabel(rightWrap);
     avatarLabel_->setFixedSize(46, 46);
@@ -648,34 +1486,22 @@ void ProfileLobbyWidget::setupHeader(QBoxLayout* rootLayout) {
     rightLayout->addWidget(avatarLabel_);
 
     settingsButton_ = new QToolButton(rightWrap);
-    settingsButton_->setText("Menu");
+    settingsButton_->setText(QString::fromUtf8("\xE2\x9A\x99"));
+    settingsButton_->setToolTip("Settings");
     settingsButton_->setCursor(Qt::PointingHandCursor);
-    settingsButton_->setMinimumSize(68, 38);
+    settingsButton_->setFixedSize(46, 46);
     settingsButton_->setStyleSheet(
         "QToolButton {"
-        " color:#F0DFAB; font:700 12px 'Segoe UI';"
-        " padding:0 12px;"
-        " border:1px solid #7C5A24; border-radius:19px; background:rgba(212,160,23,0.10);"
+        " color:#FFF0C6; font:900 24px 'Segoe UI Symbol';"
+        " border:1px solid rgba(226,176,82,0.56); border-radius:23px;"
+        " background:rgba(212,160,23,0.12);"
         "}"
-        "QToolButton:hover { background: rgba(212,160,23,0.20); }"
+        "QToolButton:hover { background: rgba(212,160,23,0.24); border-color:#E0B35A; }"
+        "QToolButton:pressed { background: rgba(140,90,24,0.38); }"
     );
-
-    settingsMenu_ = new QMenu(settingsButton_);
-    settingsMenu_->setStyleSheet(
-        "QMenu { background:#1E1712; border:1px solid #6B4B24; color:#F3DFB3; }"
-        "QMenu::item { padding:8px 16px; }"
-        "QMenu::item:selected { background:#3A2A1A; }"
-    );
-
-    const QStringList actions = {"Settings", "Inventory", "Shop", "Crew"};
-    for (const QString& actionText : actions) {
-        QAction* action = settingsMenu_->addAction(actionText);
-        connect(action, &QAction::triggered, this, [this, actionText]() {
-            emit settingsActionTriggered(actionText);
-        });
-    }
-    settingsButton_->setMenu(settingsMenu_);
-    settingsButton_->setPopupMode(QToolButton::InstantPopup);
+    connect(settingsButton_, &QToolButton::clicked, this, [this]() {
+        emit settingsActionTriggered(QStringLiteral("Settings"));
+    });
     rightLayout->addWidget(settingsButton_);
 
     headerLayout->addWidget(rightWrap, 0, Qt::AlignRight);
@@ -729,7 +1555,7 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
 
     auto* plainPanel = new QFrame(contentRow);
     plainPanel->setObjectName("fighterPlainPanel");
-    plainPanel->setMinimumWidth(170);
+    plainPanel->setMinimumWidth(300);
     plainPanel->setStyleSheet(
         "QFrame#fighterPlainPanel {"
         " background: rgba(20,16,14,0.56);"
@@ -750,62 +1576,95 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
     );
     plainLayout->addWidget(summaryEyebrow, 0, Qt::AlignLeft);
 
-    auto* summaryCard = new QFrame(plainPanel);
-    summaryCard->setStyleSheet(
-        "background:rgba(10,8,7,0.30);"
-        "border:1px solid rgba(212,160,23,0.14);"
-        "border-radius:16px;"
-    );
-    auto* summaryCardLayout = new QVBoxLayout(summaryCard);
-    summaryCardLayout->setContentsMargins(14, 14, 14, 14);
-    summaryCardLayout->setSpacing(10);
-
-    const auto createSummaryValue = [summaryCard, summaryCardLayout](const QString& title, QLabel** outLabel) {
-        auto* block = new QWidget(summaryCard);
+    const auto createSummaryValue = [plainPanel, plainLayout](const QString& title, QLabel** outLabel) {
+        auto* block = new QWidget(plainPanel);
+        block->setStyleSheet("background:transparent; border:none;");
         auto* blockLayout = new QVBoxLayout(block);
         blockLayout->setContentsMargins(0, 0, 0, 0);
         blockLayout->setSpacing(3);
 
         auto* titleLabel = new QLabel(title, block);
-        titleLabel->setStyleSheet("color:rgba(244,216,149,0.78); font:700 10px 'Segoe UI'; letter-spacing:0.9px;");
+        titleLabel->setStyleSheet(
+            "color:rgba(244,216,149,0.76);"
+            "font:800 10px 'Segoe UI';"
+            "letter-spacing:1px;"
+            "background:transparent;"
+            "border:none;"
+        );
         blockLayout->addWidget(titleLabel);
 
         auto* valueLabel = new QLabel(block);
         valueLabel->setWordWrap(true);
-        valueLabel->setStyleSheet("color:#FFF0C6; font:700 15px 'Segoe UI';");
+        valueLabel->setStyleSheet(
+            "color:#FFF0C6;"
+            "font:800 15px 'Segoe UI';"
+            "background:transparent;"
+            "border:none;"
+        );
         blockLayout->addWidget(valueLabel);
 
-        summaryCardLayout->addWidget(block);
+        plainLayout->addWidget(block);
         *outLabel = valueLabel;
     };
 
-    auto* badgeTitle = new QLabel("BADGE PLACEHOLDER", summaryCard);
-    badgeTitle->setStyleSheet("color:rgba(244,216,149,0.78); font:700 10px 'Segoe UI'; letter-spacing:0.9px;");
-    summaryCardLayout->addWidget(badgeTitle);
+    plainLayout->addSpacing(4);
 
-    lobbySummaryBadgeLabel_ = new QLabel(summaryCard);
-    lobbySummaryBadgeLabel_->setAlignment(Qt::AlignCenter);
-    lobbySummaryBadgeLabel_->setMinimumHeight(120);
+    auto* badgeTitle = new QLabel("RANK BADGE", plainPanel);
+    badgeTitle->setStyleSheet(
+        "color:rgba(244,216,149,0.76);"
+        "font:800 10px 'Segoe UI';"
+        "letter-spacing:1px;"
+        "background:transparent;"
+        "border:none;"
+    );
+    plainLayout->addWidget(badgeTitle);
+    plainLayout->addSpacing(6);
+
+    lobbySummaryBadgeLabel_ = new QLabel(plainPanel);
+    lobbySummaryBadgeLabel_->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
+    lobbySummaryBadgeLabel_->setMinimumHeight(255);
+    lobbySummaryBadgeLabel_->setScaledContents(false);
     lobbySummaryBadgeLabel_->setStyleSheet(
         "color:rgba(245,230,184,0.80);"
         "font:700 12px 'Segoe UI';"
         "letter-spacing:0.4px;"
-        "background:rgba(212,160,23,0.06);"
-        "border:1px dashed rgba(212,160,23,0.34);"
-        "border-radius:14px;"
-        "padding:12px;"
+        "background:transparent;"
+        "border:none;"
+        "padding:0px;"
     );
-    summaryCardLayout->addWidget(lobbySummaryBadgeLabel_);
+    plainLayout->addWidget(lobbySummaryBadgeLabel_);
+    plainLayout->addSpacing(8);
 
     createSummaryValue("RANK", &lobbySummaryRankLabel_);
     createSummaryValue("TOTAL SCORE", &lobbySummaryScoreLabel_);
     createSummaryValue("CURRENT FIGHTER", &lobbySummaryCharacterLabel_);
+    if (lobbySummaryRankLabel_) {
+        lobbySummaryRankLabel_->setStyleSheet(
+            "color:#FFD36A;"
+            "font:900 26px 'Segoe UI';"
+            "background:transparent;"
+            "border:none;"
+        );
+    }
+    if (lobbySummaryScoreLabel_) {
+        lobbySummaryScoreLabel_->setStyleSheet(
+            "color:#F0B45B;"
+            "font:900 16px 'Segoe UI';"
+            "background:transparent;"
+            "border:none;"
+        );
+    }
+    if (lobbySummaryCharacterLabel_) {
+        lobbySummaryCharacterLabel_->setStyleSheet(
+            "color:#FFF0C6;"
+            "font:800 15px 'Segoe UI';"
+            "background:transparent;"
+            "border:none;"
+        );
+    }
 
-    summaryCardLayout->addStretch(1);
-
-    plainLayout->addWidget(summaryCard);
     plainLayout->addStretch(1);
-    contentLayout->addWidget(plainPanel, 2);
+    contentLayout->addWidget(plainPanel, 3);
 
     auto* infoPanel = new QFrame(contentRow);
     infoPanel->setObjectName("fighterInfoPanel");
@@ -819,72 +1678,121 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
 
     auto* infoLayout = new QVBoxLayout(infoPanel);
     infoLayout->setContentsMargins(20, 18, 20, 18);
-    infoLayout->setSpacing(12);
+    infoLayout->setSpacing(10);
 
     previewPortraitLabel_ = new QLabel(infoPanel);
-    previewPortraitLabel_->setFixedSize(128, 128);
+    previewPortraitLabel_->setFixedSize(180, 180);
     previewPortraitLabel_->setAlignment(Qt::AlignCenter);
     infoLayout->addWidget(previewPortraitLabel_, 0, Qt::AlignHCenter);
 
     previewDescriptionLabel_ = new QLabel("A battle-ready contender prepared to adapt to any arena challenge.", infoPanel);
     previewDescriptionLabel_->setWordWrap(true);
-    previewDescriptionLabel_->setStyleSheet("color:#E4D2AA; font:13px 'Segoe UI'; line-height: 1.45em;");
+    previewDescriptionLabel_->setStyleSheet("color:#E4D2AA; font:13px 'Segoe UI'; line-height: 1.35em;");
     infoLayout->addWidget(previewDescriptionLabel_);
 
-    auto* moveTitleLabel = new QLabel("Abilities", infoPanel);
+    auto* moveTitleLabel = new QLabel("COMBAT READOUT", infoPanel);
     moveTitleLabel->setStyleSheet("color:rgba(244,216,149,0.82); font:700 11px 'Segoe UI'; letter-spacing: 0.8px;");
     infoLayout->addWidget(moveTitleLabel);
 
     previewMoveLabel_ = new QLabel("Adaptive combat pattern", infoPanel);
     previewMoveLabel_->setWordWrap(true);
-    previewMoveLabel_->setStyleSheet("color:#F6E7BE; font:700 13px 'Segoe UI';");
+    previewMoveLabel_->setStyleSheet(
+        "color:#FFE8B0; font:800 13px 'Segoe UI';"
+        "background: rgba(212,160,23,0.10);"
+        "border:1px solid rgba(212,160,23,0.20);"
+        "border-radius:10px;"
+        "padding:8px 10px;"
+    );
     infoLayout->addWidget(previewMoveLabel_);
+
+    auto* quickStatsGrid = new QGridLayout();
+    quickStatsGrid->setContentsMargins(0, 0, 0, 0);
+    quickStatsGrid->setHorizontalSpacing(8);
+    quickStatsGrid->setVerticalSpacing(8);
+
+    const auto makeQuickChip = [infoPanel](const QString& title) {
+        auto* chip = new QLabel(infoPanel);
+        chip->setMinimumHeight(46);
+        chip->setAlignment(Qt::AlignCenter);
+        chip->setTextFormat(Qt::RichText);
+        chip->setStyleSheet(
+            "QLabel {"
+            " color:#FFF0C6;"
+            " background: rgba(255,255,255,0.055);"
+            " border:1px solid rgba(212,160,23,0.16);"
+            " border-radius:10px;"
+            " padding:6px 8px;"
+            "}"
+        );
+        chip->setText(QStringLiteral(
+            "<span style='font-size:9px; font-weight:800; color:rgba(244,216,149,0.76); letter-spacing:1px;'>%1</span><br>"
+            "<span style='font-size:13px; font-weight:900; color:#FFF0C6;'>--</span>")
+            .arg(title.toUpper()));
+        return chip;
+    };
+
+    previewRoleChipLabel_ = makeQuickChip(QStringLiteral("Role"));
+    previewAttacksChipLabel_ = makeQuickChip(QStringLiteral("Attacks"));
+    previewRangeChipLabel_ = makeQuickChip(QStringLiteral("Range"));
+    previewProjectileChipLabel_ = makeQuickChip(QStringLiteral("Reach"));
+    previewUnlockChipLabel_ = makeQuickChip(QStringLiteral("Unlock"));
+    quickStatsGrid->addWidget(previewRoleChipLabel_, 0, 0);
+    quickStatsGrid->addWidget(previewAttacksChipLabel_, 0, 1);
+    quickStatsGrid->addWidget(previewRangeChipLabel_, 1, 0);
+    quickStatsGrid->addWidget(previewProjectileChipLabel_, 1, 1);
+    quickStatsGrid->addWidget(previewUnlockChipLabel_, 2, 0, 1, 2);
+    infoLayout->addLayout(quickStatsGrid);
 
     previewAbilitiesLabel_ = new QLabel("Flexible role coverage", infoPanel);
     previewAbilitiesLabel_->setWordWrap(true);
-    previewAbilitiesLabel_->setStyleSheet("color:#D9C7A0; font:12px 'Segoe UI'; line-height: 1.5em;");
+    previewAbilitiesLabel_->setStyleSheet("color:#D9C7A0; font:12px 'Segoe UI'; line-height: 1.35em;");
     infoLayout->addWidget(previewAbilitiesLabel_);
 
-    auto* statTitleLabel = new QLabel("Power Snapshot", infoPanel);
+    auto* statTitleLabel = new QLabel("COMBAT STATS", infoPanel);
     statTitleLabel->setStyleSheet("color:rgba(244,216,149,0.82); font:700 11px 'Segoe UI'; letter-spacing: 0.8px;");
     infoLayout->addWidget(statTitleLabel);
 
     const auto createStatRow = [infoPanel, infoLayout](const QString& title, const QString& accent, QProgressBar** outBar) {
         auto* row = new QWidget(infoPanel);
-        auto* rowLayout = new QVBoxLayout(row);
+        auto* rowLayout = new QHBoxLayout(row);
         rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->setSpacing(5);
+        rowLayout->setSpacing(9);
 
         auto* label = new QLabel(title, row);
-        label->setStyleSheet("color:#F1E0B8; font:700 11px 'Segoe UI'; letter-spacing:0.6px;");
+        label->setFixedWidth(86);
+        label->setStyleSheet("color:#F1E0B8; font:800 11px 'Segoe UI'; letter-spacing:0.4px;");
         rowLayout->addWidget(label);
 
         auto* bar = new QProgressBar(row);
-        bar->setTextVisible(false);
+        bar->setTextVisible(true);
         bar->setRange(0, 100);
-        bar->setFixedHeight(11);
+        bar->setFormat(QStringLiteral("%v"));
+        bar->setFixedHeight(15);
         bar->setStyleSheet(QString(
             "QProgressBar {"
             " background: rgba(255,255,255,0.08);"
             " border:1px solid rgba(212,160,23,0.14);"
-            " border-radius:5px;"
+            " border-radius:7px;"
+            " color:#FFF0C6;"
+            " font:800 10px 'Segoe UI';"
+            " text-align:center;"
             "}"
             "QProgressBar::chunk {"
             " background:%1;"
-            " border-radius:5px;"
+            " border-radius:7px;"
             "}"
         ).arg(accent));
-        rowLayout->addWidget(bar);
+        rowLayout->addWidget(bar, 1);
         infoLayout->addWidget(row);
         *outBar = bar;
     };
 
     createStatRow("Attack Power", "#BE3A2C", &attackPowerBar_);
-    createStatRow("Heal Power", "#2F8A63", &healPowerBar_);
+    createStatRow("Recovery", "#2F8A63", &healPowerBar_);
     createStatRow("Mobility", "#2D77B2", &mobilityPowerBar_);
     createStatRow("Control", "#8B5AB8", &controlPowerBar_);
 
-    auto* hintTitleLabel = new QLabel("Arena Intel", infoPanel);
+    auto* hintTitleLabel = new QLabel("MODE NOTE", infoPanel);
     hintTitleLabel->setStyleSheet("color:rgba(244,216,149,0.82); font:700 11px 'Segoe UI'; letter-spacing: 0.8px;");
     infoLayout->addWidget(hintTitleLabel);
 
@@ -927,12 +1835,18 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
     characterView_->viewport()->setCursor(Qt::ArrowCursor);
 
     previewScene_ = new QGraphicsScene(characterView_);
-    previewScene_->setSceneRect(0, 0, 1600, 980);
+    previewScene_->setSceneRect(0, 0, kPreviewSceneWidth, kPreviewSceneHeight);
     previewScene_->setBackgroundBrush(QColor(40, 30, 25));
     characterView_->setScene(previewScene_);
 
-    sceneBackgroundItem_ = previewScene_->addPixmap(createCinematicBackdrop(QSize(1600, 980)));
+    sceneBackgroundItem_ = previewScene_->addPixmap(createCinematicBackdrop(QSize(kPreviewSceneWidth, kPreviewSceneHeight)));
     sceneBackgroundItem_->setZValue(-10.0);
+
+    sceneLockDimItem_ = previewScene_->addRect(previewScene_->sceneRect(),
+                                               Qt::NoPen,
+                                               QColor(0, 0, 0, 178));
+    sceneLockDimItem_->setZValue(-6.0);
+    sceneLockDimItem_->setVisible(false);
 
     glowItem_ = previewScene_->addPixmap(createGoldGlowPixmap(820));
     glowItem_->setOpacity(0.54);
@@ -946,6 +1860,16 @@ void ProfileLobbyWidget::setupCharacterPreview(QBoxLayout* rootLayout) {
     shadow->setOffset(0, 12);
     shadow->setColor(QColor(212, 160, 23, 90));
     characterItem_->setGraphicsEffect(shadow);
+
+    characterLockItem_ = previewScene_->addPixmap(lockBadgePixmap(112));
+    characterLockItem_->setZValue(4.0);
+    characterLockItem_->setVisible(false);
+
+    characterLockTextItem_ = previewScene_->addText(QString(), QFont("Segoe UI", 22, QFont::Black));
+    characterLockTextItem_->setDefaultTextColor(QColor("#FFE6A6"));
+    characterLockTextItem_->setTextWidth(520);
+    characterLockTextItem_->setZValue(5.0);
+    characterLockTextItem_->setVisible(false);
 
     fallbackTextItem_ = previewScene_->addText("Character image not found", QFont("Segoe UI", 16, QFont::Bold));
     fallbackTextItem_->setDefaultTextColor(QColor("#D4A017"));
@@ -1195,6 +2119,11 @@ void ProfileLobbyWidget::setupBottomBar(QBoxLayout* rootLayout) {
         "QPushButton:pressed {"
         " background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #4F0A0A, stop:1 #91241B);"
         "}"
+        "QPushButton:disabled {"
+        " background: rgba(32,25,20,0.78);"
+        " border:2px solid rgba(245,210,142,0.26);"
+        " color:rgba(245,230,184,0.52);"
+        "}"
     );
 
     enterArenaGlowEffect_ = new QGraphicsDropShadowEffect(this);
@@ -1336,14 +2265,35 @@ QWidget* ProfileLobbyWidget::createModeCard(const GameMode& mode) {
 
 QString ProfileLobbyWidget::badgeColorFor(const QString& badge) const {
     const QString lowered = badge.toLower();
+    if (lowered.contains("immortal")) {
+        return "#F7F0C8";
+    }
     if (lowered.contains("legend")) {
         return "#E58E26";
     }
-    if (lowered.contains("pro")) {
-        return "#2E86DE";
+    if (lowered.contains("champion")) {
+        return "#D4A017";
+    }
+    if (lowered.contains("warlord")) {
+        return "#C0392B";
+    }
+    if (lowered.contains("knight")) {
+        return "#7FB3D5";
     }
     if (lowered.contains("elite")) {
         return "#8E44AD";
+    }
+    if (lowered.contains("gladiator")) {
+        return "#B9770E";
+    }
+    if (lowered.contains("squire")) {
+        return "#9A7D0A";
+    }
+    if (lowered.contains("wanderer")) {
+        return "#6C7A89";
+    }
+    if (lowered.contains("pro")) {
+        return "#2E86DE";
     }
     return "#6C7A89";
 }
@@ -1480,6 +2430,8 @@ void ProfileLobbyWidget::refreshProfileUi() {
     // Ranking teammate:
     // Extend this UI refresh to show progression values clearly in the lobby:
     // score, rank, and rating out of 5.
+    const QString currentRank = canonicalRankName(userProfile_.badge, userProfile_.score);
+
     if (usernameLabel_) {
         usernameLabel_->setText(userProfile_.username);
     }
@@ -1487,8 +2439,8 @@ void ProfileLobbyWidget::refreshProfileUi() {
         scoreLabel_->setText(QString("SCORE  %1").arg(userProfile_.score));
     }
     if (badgeLabel_) {
-        const QString color = badgeColorFor(userProfile_.badge);
-        badgeLabel_->setText(QString("BADGE  %1").arg(userProfile_.badge));
+        const QString color = badgeColorFor(currentRank);
+        badgeLabel_->setText(QString("RANK  %1").arg(currentRank));
         badgeLabel_->setStyleSheet(QString(
             "color:#F5E6B8; font:700 13px 'Segoe UI';"
             "padding:7px 12px; border-radius:11px;"
@@ -1521,16 +2473,63 @@ void ProfileLobbyWidget::refreshProfileUi() {
     }
 
     if (lobbySummaryRankLabel_) {
-        lobbySummaryRankLabel_->setText(userProfile_.badge.trimmed().isEmpty()
-            ? QStringLiteral("Wanderer")
-            : userProfile_.badge.trimmed());
+        lobbySummaryRankLabel_->setText(currentRank);
     }
     if (lobbySummaryScoreLabel_) {
         lobbySummaryScoreLabel_->setText(QString::number(qMax(0, userProfile_.score)));
     }
     if (lobbySummaryBadgeLabel_) {
-        lobbySummaryBadgeLabel_->setText(QStringLiteral("Badge Art\nComing Soon"));
+        const int availableWidth = lobbySummaryBadgeLabel_->width() > 32
+            ? lobbySummaryBadgeLabel_->width()
+            : 240;
+        const int side = qBound(210, qMin(availableWidth, 285), 285);
+        const QPixmap badgePixmap = rankBadgePixmap(currentRank, side);
+        if (!badgePixmap.isNull()) {
+            lobbySummaryBadgeLabel_->setText(QString());
+            lobbySummaryBadgeLabel_->setPixmap(badgePixmap);
+            lobbySummaryBadgeLabel_->setToolTip(QStringLiteral("%1 rank badge").arg(currentRank));
+        } else {
+            lobbySummaryBadgeLabel_->setPixmap(QPixmap());
+            lobbySummaryBadgeLabel_->setText(QStringLiteral("%1\nBadge Missing").arg(currentRank));
+            lobbySummaryBadgeLabel_->setToolTip(QString());
+        }
     }
+    refreshCharacterLockState();
+}
+
+void ProfileLobbyWidget::refreshCharacterLockState() {
+    if (!characterItem_) {
+        return;
+    }
+
+    const QString currentRank = canonicalRankName(userProfile_.badge, userProfile_.score);
+    const int rankTier = rankTierForName(currentRank);
+    const PlayerType type = playerTypeForLobbyName(selectedCharacter_.name);
+    const FighterAiProfile profile = fighterAiProfileFor(type);
+    const bool locked = rankTier < profile.unlockTier;
+    const QString unlockRank = rankNameForUnlockTier(profile.unlockTier);
+
+    characterItem_->setOpacity(locked ? 0.68 : 1.0);
+    if (sceneLockDimItem_) {
+        sceneLockDimItem_->setVisible(locked);
+        sceneLockDimItem_->setOpacity(locked ? 0.86 : 0.0);
+    }
+    if (glowItem_) {
+        glowItem_->setOpacity(locked ? 0.30 : 0.54);
+    }
+    if (characterLockItem_) {
+        characterLockItem_->setVisible(locked);
+    }
+    if (characterLockTextItem_) {
+        characterLockTextItem_->setVisible(locked);
+        characterLockTextItem_->setHtml(QStringLiteral(
+            "<div align='center'>"
+            "<span style='font-size:34px; font-weight:900; color:#FFE6A6;'>LOCKED</span><br/>"
+            "<span style='font-size:20px; font-weight:800; color:#D9C7A0;'>Unlocks at %1</span>"
+            "</div>").arg(unlockRank));
+    }
+
+    updatePreviewScale();
 }
 
 void ProfileLobbyWidget::refreshLobbyContext() {
@@ -1538,6 +2537,22 @@ void ProfileLobbyWidget::refreshLobbyContext() {
     // Update lobby copy here to reflect duel setup choices:
     // chosen opponent mode, chosen opponent, and chosen background.
     const CharacterLobbyProfile profile = profileForCharacter(selectedCharacter_.name, selectedCharacter_.specialMoves);
+    const PlayerType currentType = playerTypeForLobbyName(selectedCharacter_.name);
+    const FighterAiProfile fighterProfile = fighterAiProfileFor(currentType);
+    const CharacterFeatureSet featureSet = InputHandler::getCharacterFeatures(currentType);
+    const int attackSlots = qBound(1, qMax(fighterProfile.attackCount, featureSet.attackOptions), 3);
+    const QString currentRank = canonicalRankName(userProfile_.badge, userProfile_.score);
+    const bool lockedCharacter = rankTierForName(currentRank) < fighterProfile.unlockTier;
+    const QString unlockRank = rankNameForUnlockTier(fighterProfile.unlockTier);
+    const auto setQuickChip = [](QLabel* label, const QString& title, const QString& value, const QString& color = QStringLiteral("#FFF0C6")) {
+        if (!label) {
+            return;
+        }
+        label->setText(QStringLiteral(
+            "<span style='font-size:9px; font-weight:800; color:rgba(244,216,149,0.76); letter-spacing:1px;'>%1</span><br>"
+            "<span style='font-size:13px; font-weight:900; color:%3;'>%2</span>")
+            .arg(title.toUpper(), value.toHtmlEscaped(), color));
+    };
 
     if (lobbySummaryCharacterLabel_) {
         lobbySummaryCharacterLabel_->setText(selectedCharacter_.name.trimmed().isEmpty()
@@ -1566,21 +2581,31 @@ void ProfileLobbyWidget::refreshLobbyContext() {
     }
 
     if (previewMoveLabel_) {
-        const QString moveText = profile.abilities.isEmpty()
-            ? "Adaptable close-range and spacing pressure."
-            : profile.abilities.first();
-        previewMoveLabel_->setText(moveText);
+        previewMoveLabel_->setText(attackPatternFor(currentType, attackSlots));
     }
 
+    setQuickChip(previewRoleChipLabel_,
+                 QStringLiteral("Role"),
+                 personalityLabel(fighterProfile.personality));
+    setQuickChip(previewAttacksChipLabel_,
+                 QStringLiteral("Attacks"),
+                 QStringLiteral("%1 states").arg(attackSlots));
+    setQuickChip(previewRangeChipLabel_,
+                 QStringLiteral("Range"),
+                 QStringLiteral("%1-%2 px")
+                     .arg(static_cast<int>(fighterProfile.idealMinRange))
+                     .arg(static_cast<int>(fighterProfile.idealMaxRange)));
+    setQuickChip(previewProjectileChipLabel_,
+                 QStringLiteral("Reach"),
+                 projectileShortLabelFor(currentType, fighterProfile),
+                 fighterProfile.hasProjectile ? QStringLiteral("#8DD9FF") : QStringLiteral("#FFF0C6"));
+    setQuickChip(previewUnlockChipLabel_,
+                 lockedCharacter ? QStringLiteral("Unlocks") : QStringLiteral("Unlocked"),
+                 lockedCharacter ? unlockRank : QStringLiteral("Available"),
+                 lockedCharacter ? QStringLiteral("#E9B86E") : QStringLiteral("#7FF0B2"));
+
     if (previewAbilitiesLabel_) {
-        QStringList extraAbilities = profile.abilities;
-        if (!extraAbilities.isEmpty()) {
-            extraAbilities.removeFirst();
-        }
-        for (QString& ability : extraAbilities) {
-            ability = QString("• %1").arg(ability);
-        }
-        previewAbilitiesLabel_->setText(extraAbilities.join("\n"));
+        previewAbilitiesLabel_->setText(tacticalNoteFor(currentType, fighterProfile));
     }
 
     if (duelSetupLabel_ && duelSetupPanel_ && duelSetupPanel_->isVisible()) {
@@ -1593,16 +2618,19 @@ void ProfileLobbyWidget::refreshLobbyContext() {
 
     if (previewHintLabel_) {
         const QString description = modeDescriptionFor(selectedModeName_);
-        if (isPlayableMode(selectedModeName_)) {
+        if (lockedCharacter) {
+            previewHintLabel_->setText(QStringLiteral("%1 is locked. Unlock this fighter at %2.")
+                                           .arg(selectedCharacter_.name.trimmed(), unlockRank));
+        } else if (isPlayableMode(selectedModeName_)) {
             if (selectedModeName_.compare(kExhibitionLobbyMode, Qt::CaseInsensitive) == 0) {
-                previewHintLabel_->setText(QStringLiteral("Duel mode selected. Open the exhibition setup page to choose your fighter, rival rules, and arena theme."));
+                previewHintLabel_->setText(QStringLiteral("Duel selected. Choose rival rules and arena in setup."));
             } else {
                 previewHintLabel_->setText(description.isEmpty()
                     ? "Choose a mode and enter the arena."
-                    : QString("%1 mode selected. %2").arg(modeShortTagFor(selectedModeName_), description));
+                    : QString("%1 selected. %2").arg(modeShortTagFor(selectedModeName_), description));
             }
         } else {
-            previewHintLabel_->setText(QString("%1 is coming soon. The current ready combat theme is Save the Kings.")
+            previewHintLabel_->setText(QString("%1 is coming soon. Save the Kings is ready now.")
                                            .arg(selectedModeName_));
         }
     }
@@ -1628,7 +2656,10 @@ void ProfileLobbyWidget::refreshLobbyContext() {
 
     if (actionHintLabel_) {
         QString hint;
-        if (isPlayableMode(selectedModeName_)) {
+        if (lockedCharacter) {
+            hint = QStringLiteral("%1 unlocks at %2. Browse another fighter to enter the arena now.")
+                       .arg(selectedCharacter_.name.trimmed(), unlockRank);
+        } else if (isPlayableMode(selectedModeName_)) {
             if (selectedModeName_.compare(kExhibitionLobbyMode, Qt::CaseInsensitive) == 0) {
                 hint = QStringLiteral("Open duel setup next, then choose manual or random rival flow, browse opponents, and pick the battle theme.");
                 if (!selectedCharacter_.name.trimmed().isEmpty()) {
@@ -1651,7 +2682,13 @@ void ProfileLobbyWidget::refreshLobbyContext() {
     }
 
     if (enterArenaButton_) {
-        if (!isPlayableMode(selectedModeName_)) {
+        enterArenaButton_->setEnabled(!lockedCharacter && isPlayableMode(selectedModeName_));
+        enterArenaButton_->setCursor((!lockedCharacter && isPlayableMode(selectedModeName_))
+            ? Qt::PointingHandCursor
+            : Qt::ForbiddenCursor);
+        if (lockedCharacter) {
+            enterArenaButton_->setText(QStringLiteral("LOCKED"));
+        } else if (!isPlayableMode(selectedModeName_)) {
             enterArenaButton_->setText("COMING SOON");
         } else if (selectedModeName_.compare(kExhibitionLobbyMode, Qt::CaseInsensitive) == 0) {
             enterArenaButton_->setText("OPEN DUEL SETUP");
@@ -1659,6 +2696,8 @@ void ProfileLobbyWidget::refreshLobbyContext() {
             enterArenaButton_->setText("ENTER ARENA");
         }
     }
+
+    refreshCharacterLockState();
 }
 
 void ProfileLobbyWidget::refreshCharacterPreview() {
@@ -1673,44 +2712,7 @@ void ProfileLobbyWidget::refreshCharacterPreview() {
     showcasingAttack_ = false;
     idleShowcaseElapsedMs_ = 0;
 
-    struct LobbyAnimationSpec {
-        QString idlePath;
-        int idleFrameCount;
-        QString attackPath;
-        int attackFrameCount;
-    };
-
-    const QString characterName = selectedCharacter_.name.trimmed().toLower();
-    const LobbyAnimationSpec spec = [&]() -> LobbyAnimationSpec {
-        if (characterName.contains("arcen")) {
-            return {"Sprites/Character/Idle.png", 10, "Sprites/Character/Attack.png", 6};
-        }
-        if (characterName.contains("demon slayer")) {
-            return {"Sprites/Idle.png", 4, "Sprites/Attack1.png", 4};
-        }
-        if (characterName.contains("fantasy")) {
-            return {"Sprites/Idle.png", 10, "Sprites/Attack1.png", 7};
-        }
-        if (characterName.contains("huntress")) {
-            return {"Sprites/Idle.png", 8, "Sprites/Attack1.png", 5};
-        }
-        if (characterName.contains("knight")) {
-            return {"Sprites/IDLE.png", 7, "Sprites/ATTACK 1.png", 6};
-        }
-        if (characterName.contains("martial hero")) {
-            return {"Sprites/Idle.png", 8, "Sprites/Attack1.png", 6};
-        }
-        if (characterName.contains("martial")) {
-            return {"Sprite/Idle.png", 10, "Sprite/Attack1.png", 7};
-        }
-        if (characterName.contains("medieval")) {
-            return {"Sprites/Idle.png", 10, "Sprites/Attack1.png", 7};
-        }
-        if (characterName.contains("wizard")) {
-            return {"Sprites/Idle.png", 6, "Sprites/Attack1.png", 8};
-        }
-        return {QString(), 1, QString(), 0};
-    }();
+    const LobbyAnimationSpec spec = animationSpecForCharacterName(selectedCharacter_.name);
 
     const QString resolvedImagePath = resolveAssetPath(selectedCharacter_.imagePath);
     const QString resolvedPortraitPath = profilePortraitPathForCharacter(selectedCharacter_.name, selectedCharacter_.imagePath);
@@ -1718,6 +2720,14 @@ void ProfileLobbyWidget::refreshCharacterPreview() {
     const QDir baseDir = imageInfo.dir();
     const QString idleSpritePath = spec.idlePath.isEmpty() ? QString() : baseDir.filePath(spec.idlePath);
     const QString attackSpritePath = spec.attackPath.isEmpty() ? QString() : baseDir.filePath(spec.attackPath);
+
+    if (sceneBackgroundItem_ && previewScene_) {
+        const QSize sceneSize = previewScene_->sceneRect().size().toSize();
+        sceneBackgroundItem_->setPixmap(previewBackgroundPixmapForCharacter(selectedCharacter_.name,
+                                                                            selectedCharacter_.imagePath,
+                                                                            sceneSize));
+        sceneBackgroundItem_->setPos(0, 0);
+    }
 
     if (previewPortraitLabel_) {
         QPixmap portrait(!resolvedPortraitPath.isEmpty() ? resolvedPortraitPath : resolvedImagePath);
@@ -1864,17 +2874,25 @@ void ProfileLobbyWidget::updatePreviewScale() {
     characterItem_->setScale(scale);
     const QSizeF scaled(pix.width() * scale, pix.height() * scale);
     characterItem_->setPos((sceneRect.width() - scaled.width()) * 0.5,
-                           sceneRect.height() - scaled.height() - sceneRect.height() * 0.03);
+                           sceneRect.height() - scaled.height() - sceneRect.height() * kLobbyPreviewFloorLiftRatio);
+
+    if (characterLockItem_) {
+        const QRectF lockBounds = characterLockItem_->boundingRect();
+        characterLockItem_->setPos((sceneRect.width() - lockBounds.width()) * 0.5,
+                                   sceneRect.height() * 0.37 - lockBounds.height() * 0.5);
+    }
+
+    if (characterLockTextItem_) {
+        characterLockTextItem_->setPos((sceneRect.width() - characterLockTextItem_->textWidth()) * 0.5,
+                                       sceneRect.height() * 0.47);
+    }
 
     if (fallbackTextItem_) {
         fallbackTextItem_->setPos((sceneRect.width() - fallbackTextItem_->boundingRect().width()) * 0.5,
                                   sceneRect.height() * 0.85);
     }
 
-    const QRectF focusRect(sceneRect.width() * 0.08,
-                           sceneRect.height() * 0.02,
-                           sceneRect.width() * 0.84,
-                           sceneRect.height() * 0.94);
+    const QRectF focusRect = sceneRect;
     characterView_->fitInView(focusRect, Qt::KeepAspectRatio);
 }
 
@@ -1912,6 +2930,7 @@ void ProfileLobbyWidget::setSelectedCharacter(const Character& character) {
     selectedCharacter_ = character;
     refreshDuelSetupControls();
     refreshCharacterPreview();
+    refreshCharacterLockState();
     refreshLobbyContext();
 }
 
@@ -1974,12 +2993,36 @@ void ProfileLobbyWidget::paintEvent(QPaintEvent* event) {
     QWidget::paintEvent(event);
 }
 
+void ProfileLobbyWidget::keyPressEvent(QKeyEvent* event) {
+    if (rankUpgradeOverlay_ && rankUpgradeOverlay_->isVisible()) {
+        if (event->key() == Qt::Key_Space) {
+            claimRankUpgradePopup();
+        }
+        event->accept();
+        return;
+    }
+
+    QWidget::keyPressEvent(event);
+}
+
 void ProfileLobbyWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     updatePreviewScale();
+    refreshProfileUi();
+    syncRankUpgradeOverlay();
 }
 
 bool ProfileLobbyWidget::eventFilter(QObject* watched, QEvent* event) {
+    if ((watched == rankUpgradeOverlay_ || watched == rankUpgradePanel_) && event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (rankUpgradeOverlay_ && rankUpgradeOverlay_->isVisible()) {
+            if (keyEvent->key() == Qt::Key_Space) {
+                claimRankUpgradePopup();
+            }
+            return true;
+        }
+    }
+
     // 1v1 teammate:
     // Mode-card click handling already happens here.
     // Extend this flow if duel selection needs extra panel updates.
@@ -2026,6 +3069,7 @@ void ProfileLobbyWidget::updateProgression(const PlayerProgression& stats) {
     userProfile_.score = stats.totalScore;
     userProfile_.badge = QString::fromStdString(stats.currentRank);
     refreshProfileUi();
+    refreshLobbyContext();
 
     if (actionHintLabel_) {
         const QString baseText = actionHintLabel_->text();
@@ -2036,4 +3080,3 @@ void ProfileLobbyWidget::updateProgression(const PlayerProgression& stats) {
                                       .arg(stats.losses));
     }
 }
-

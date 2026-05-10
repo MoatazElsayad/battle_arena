@@ -84,8 +84,8 @@ bool DatabaseManager::saveProgressionForUser(const QString& username,
     user->wins = data.wins;
     user->losses = data.losses;
     user->currentRating = data.currentRating;
-    user->currentRank = QString::fromStdString(data.currentRank);
-    user->badge = badgeForTotalScore(data.totalScore);
+    user->currentRank = badgeForTotalScore(data.totalScore);
+    user->badge = user->currentRank;
     user->highScore = std::max(user->highScore, data.totalScore);
 
     if (!saveToDisk()) {
@@ -302,12 +302,8 @@ bool DatabaseManager::getUserProfile(const QString& username, UserProfileRecord*
         outProfile->wins = user->wins;
         outProfile->losses = user->losses;
         outProfile->currentRating = user->currentRating;
-        outProfile->currentRank = user->currentRank.isEmpty()
-            ? QStringLiteral("Wanderer")
-            : user->currentRank;
-        outProfile->badge = user->badge.isEmpty()
-            ? badgeForTotalScore(user->totalScore)
-            : user->badge;
+        outProfile->currentRank = badgeForTotalScore(user->totalScore);
+        outProfile->badge = outProfile->currentRank;
         outProfile->avatarPath = user->avatarPath;
     }
     return true;
@@ -411,8 +407,8 @@ bool DatabaseManager::loadFromDisk() {
         user.wins = object.value(QStringLiteral("wins")).toInt(0);
         user.losses = object.value(QStringLiteral("losses")).toInt(0);
         user.currentRating = object.value(QStringLiteral("currentRating")).toDouble(0.0);
-        user.currentRank = object.value(QStringLiteral("currentRank")).toString(QStringLiteral("Wanderer"));
-        user.badge = object.value(QStringLiteral("badge")).toString(badgeForTotalScore(user.totalScore));
+        user.currentRank = badgeForTotalScore(user.totalScore);
+        user.badge = user.currentRank;
         user.avatarPath = object.value(QStringLiteral("avatarPath")).toString();
         users_.push_back(user);
     }
@@ -504,16 +500,34 @@ QString DatabaseManager::hashPassword(const QString& salt, const QString& passwo
 }
 
 QString DatabaseManager::badgeForTotalScore(int totalScore) {
-    if (totalScore >= 12000) {
+    if (totalScore >= 9000) {
+        return QStringLiteral("Immortal");
+    }
+    if (totalScore >= 6500) {
         return QStringLiteral("Legend");
     }
-    if (totalScore >= 5000) {
-        return QStringLiteral("Pro");
+    if (totalScore >= 4500) {
+        return QStringLiteral("High Champion");
     }
-    if (totalScore >= 1500) {
-        return QStringLiteral("Elite");
+    if (totalScore >= 3200) {
+        return QStringLiteral("Champion");
     }
-    return QStringLiteral("Rookie");
+    if (totalScore >= 2200) {
+        return QStringLiteral("Warlord");
+    }
+    if (totalScore >= 1400) {
+        return QStringLiteral("Elite Knight");
+    }
+    if (totalScore >= 800) {
+        return QStringLiteral("Knight");
+    }
+    if (totalScore >= 400) {
+        return QStringLiteral("Gladiator");
+    }
+    if (totalScore >= 150) {
+        return QStringLiteral("Squire");
+    }
+    return QStringLiteral("Wanderer");
 }
 
 DatabaseManager::UserRecord* DatabaseManager::findUserByUsername(const QString& username) {

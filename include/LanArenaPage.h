@@ -1,6 +1,7 @@
 #ifndef LANARENAPAGE_H
 #define LANARENAPAGE_H
 
+#include <QVector>
 #include <QWidget>
 
 #include "Enums.h"
@@ -8,7 +9,7 @@
 
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
+class QListWidget;
 class QPushButton;
 class LanSessionManager;
 
@@ -23,6 +24,7 @@ public:
 
 signals:
     void backRequested();
+    void localFighterChanged(PlayerType fighterType, const QString& fighterName);
 
 private slots:
     void hostSession();
@@ -35,33 +37,51 @@ private slots:
 
 private:
     void setupUi();
-    void refreshIdentityLabels();
+    void rebuildFighterEntries();
+    void rebuildArenaEntries();
+    void syncFighterSelection();
+    void syncArenaSelection();
     void refreshAddressHints();
+    void refreshArenaControlState();
     quint16 selectedPort() const;
-    QString buildPlayerSummary(const QString& title, const LanPlayerInfo& player, bool connected) const;
-    QString badgeStyleForState(LanSessionState state) const;
 
     LanSessionManager* sessionManager_;
+    LanSessionSnapshot currentSnapshot_;
+    QVector<PlayerType> availablePlayerTypes_;
+    bool syncingUi_;
     QString username_;
     QString fighterName_;
     PlayerType fighterType_;
+    QString selectedArena_;
 
-    QLabel* identityLabel_;
     QLabel* addressHintLabel_;
-    QLabel* statusBadgeLabel_;
-    QLabel* statusTextLabel_;
-    QLabel* sessionMetaLabel_;
-    QLabel* localPlayerLabel_;
-    QLabel* remotePlayerLabel_;
+    QLabel* localNameLabel_;
+    QLabel* localFighterLabel_;
+    QLabel* localPortraitLabel_;
+    QLabel* localConnectionLabel_;
+    QLabel* localReadyLabel_;
+    QLabel* remoteNameLabel_;
+    QLabel* remoteFighterLabel_;
+    QLabel* remotePortraitLabel_;
+    QLabel* remoteConnectionLabel_;
+    QLabel* remoteReadyLabel_;
+    QLabel* linkStatusBadgeLabel_;
+    QLabel* linkStatusTextLabel_;
+    QLabel* linkStatusMetaLabel_;
     QLabel* duelHintLabel_;
+    QLabel* arenaNameLabel_;
+    QLabel* arenaDescriptionLabel_;
+    QLabel* arenaPreviewLabel_;
+    QLabel* arenaOwnerHintLabel_;
     QLineEdit* hostAddressEdit_;
     QLineEdit* portEdit_;
+    QListWidget* fighterList_;
+    QListWidget* arenaList_;
     QPushButton* hostButton_;
     QPushButton* joinButton_;
     QPushButton* disconnectButton_;
     QPushButton* readyButton_;
     QPushButton* primeButton_;
-    QPlainTextEdit* eventLog_;
 };
 
 #endif // LANARENAPAGE_H

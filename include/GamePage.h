@@ -1,9 +1,11 @@
 ﻿#ifndef GAMEPAGE_H
 #define GAMEPAGE_H
 
+#include <optional>
 #include <QWidget>
 #include <QString>
 #include "ChronicleAiTypes.h"
+#include "CombatHighlightTypes.h"
 
 class BattleWidget;
 class ChronicleAiAdvisor;
@@ -30,6 +32,7 @@ public:
     void resumeBattle();
     bool hasActiveBattle() const;
     ChronicleBattleReport lastChronicleReport() const;
+    std::optional<CombatHighlightSnapshot> lastBattleHighlight() const;
 
 signals:
     void battleFinished();
@@ -53,6 +56,7 @@ private:
     int pendingChronicleLevel_;
     bool pendingChronicleCampaignComplete_;
     ChronicleBattleReport pendingChronicleReport_;
+    std::optional<CombatHighlightSnapshot> pendingBattleHighlight_;
 };
 
 #endif // GAMEPAGE_H

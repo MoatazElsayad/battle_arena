@@ -6,6 +6,7 @@
 #include <QVector>
 #include <QWidget>
 
+#include "Enums.h"
 #include "ProgressionTypes.h"
 
 class QLabel;
@@ -17,6 +18,7 @@ class QScrollArea;
 class QGraphicsView;
 class QGraphicsScene;
 class QGraphicsPixmapItem;
+class QGraphicsRectItem;
 class QGraphicsTextItem;
 class QGraphicsDropShadowEffect;
 class QVariantAnimation;
@@ -26,6 +28,7 @@ class QTimer;
 class QVBoxLayout;
 class QComboBox;
 class QFrame;
+class QKeyEvent;
 
 class ProfileLobbyWidget : public QWidget {
     Q_OBJECT
@@ -63,7 +66,7 @@ public:
         QString selectedOpponent;   // optional identifier
         QString selectedArena;
     };
-    
+
     DuelSetup duelConfig() const { return duelSetup_; }
 
     explicit ProfileLobbyWidget(QWidget* parent = nullptr);
@@ -79,6 +82,10 @@ public slots:
     void setSelectedMode(const QString& modeName);
     void setDuelSetup(const DuelSetup& setup);
     void updateProgression(const PlayerProgression& stats);
+    void showRankUpgradePopup(const QString& previousRank, const QString& newRank);
+    void showCharacterUnlockPopup(const QString& characterName,
+                                  const QString& rankName,
+                                  const QString& imagePath);
 
 signals:
     void enterArenaClicked(const QString& modeName);
@@ -87,6 +94,7 @@ signals:
     void usernameEditRequested();
 
 protected:
+    void keyPressEvent(QKeyEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -105,10 +113,16 @@ private:
     void setupModeCarousel(QBoxLayout* rootLayout);
     void setupBottomBar(QBoxLayout* rootLayout);
     void setupDuelSetupPanel(QBoxLayout* rootLayout);
+    void setupRankUpgradeOverlay();
 
     QWidget* createModeCard(const GameMode& mode);
     QString badgeColorFor(const QString& badge) const;
+    void prepareCharacterUnlockReveal(const QString& characterName, const QString& imagePath);
+    void updateCharacterUnlockReveal(qreal progress);
+    void claimRankUpgradePopup();
+    void syncRankUpgradeOverlay();
     void refreshProfileUi();
+    void refreshCharacterLockState();
     void refreshCharacterPreview();
     void refreshModeSelectionUi();
     void refreshLobbyContext();
@@ -148,10 +162,32 @@ private:
     QLabel* lobbySummaryRankLabel_;
     QLabel* lobbySummaryScoreLabel_;
     QLabel* lobbySummaryBadgeLabel_;
+    QWidget* rankUpgradeOverlay_;
+    QFrame* rankUpgradePanel_;
+    QLabel* rankUpgradeEyebrowLabel_;
+    QLabel* rankUpgradeTitleLabel_;
+    QLabel* rankUpgradeBodyLabel_;
+    QWidget* rankUpgradeBadgeRowWidget_;
+    QLabel* rankUpgradeArrowLabel_;
+    QLabel* rankUpgradeOldRankLabel_;
+    QLabel* rankUpgradeNewRankLabel_;
+    QLabel* rankUpgradeOldBadgeLabel_;
+    QLabel* rankUpgradeNewBadgeLabel_;
+    QLabel* rankUpgradeHintLabel_;
+    QGraphicsView* characterUnlockView_;
+    QGraphicsScene* characterUnlockScene_;
+    QGraphicsPixmapItem* characterUnlockGlowItem_;
+    QGraphicsPixmapItem* characterUnlockPortraitItem_;
+    QGraphicsPixmapItem* characterUnlockFighterItem_;
     QLabel* previewPortraitLabel_;
     QLabel* previewDescriptionLabel_;
     QLabel* previewMoveLabel_;
     QLabel* previewAbilitiesLabel_;
+    QLabel* previewRoleChipLabel_;
+    QLabel* previewAttacksChipLabel_;
+    QLabel* previewRangeChipLabel_;
+    QLabel* previewProjectileChipLabel_;
+    QLabel* previewUnlockChipLabel_;
     QLabel* previewHintLabel_;
     QProgressBar* attackPowerBar_;
     QProgressBar* healPowerBar_;
@@ -160,8 +196,11 @@ private:
     QGraphicsView* characterView_;
     QGraphicsScene* previewScene_;
     QGraphicsPixmapItem* sceneBackgroundItem_;
+    QGraphicsRectItem* sceneLockDimItem_;
     QGraphicsPixmapItem* characterItem_;
     QGraphicsPixmapItem* glowItem_;
+    QGraphicsPixmapItem* characterLockItem_;
+    QGraphicsTextItem* characterLockTextItem_;
     QGraphicsTextItem* fallbackTextItem_;
 
     QScrollArea* modeScrollArea_;
@@ -184,13 +223,22 @@ private:
     QLabel* duelSetupLabel_;
 
     QVariantAnimation* hoverGlowAnimation_;
+    QVariantAnimation* rankUpgradeOverlayAnimation_;
+    QVariantAnimation* characterUnlockRevealAnimation_;
     QGraphicsDropShadowEffect* enterArenaGlowEffect_;
     QTimer* idleAnimationTimer_;
     QVector<QPixmap> idleFrames_;
     QVector<QPixmap> attackFrames_;
+    QVector<QPixmap> characterUnlockIdleFrames_;
     int idleFrameIndex_;
     bool showcasingAttack_;
     int idleShowcaseElapsedMs_;
+    bool rankUpgradeOverlayClosing_;
+    bool showingCharacterUnlockPopup_;
+    bool characterUnlockClaimReady_;
+    QString pendingCharacterUnlockName_;
+    QString pendingCharacterUnlockRank_;
+    QString pendingCharacterUnlockImagePath_;
 };
 
 #endif // PROFILELOBBYWIDGET_H

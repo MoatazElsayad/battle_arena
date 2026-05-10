@@ -78,13 +78,20 @@ private:
     void showLanArenaPage();
     void showExhibitionSetupPage();
     void syncExhibitionSelectionToLobby();
+    void ensureFullScreen();
+    void toggleFullScreen();
+    std::vector<PlayerType> unlockedPlayerTypesForCurrentRank() const;
+    bool isPlayerTypeUnlocked(PlayerType type) const;
+    void selectLobbyCharacter(PlayerType type);
 
     void refreshProfile();
+    void showPendingRankUpgradeIfNeeded();
     void refreshBattleView();  // GamePage dev: call this to update battle display
     void showGameOverPage();
     void updateHighScores();
     QString stateTitle() const;
     void uploadBattleResult(const ChronicleBattleReport& report, bool isDuelMatch) const;
+    void uploadBattleHighlight(const ChronicleBattleReport& report, bool isDuelMatch) const;
     PlayerProgression applyBattleProgression(const QString& username,
                                             const ChronicleBattleReport& report,
                                             bool isDuelMatch,
@@ -148,6 +155,12 @@ private:
     PlayerType selectedPlayerType_;
     SaveKingSceneAction saveKingSceneAction_;
     bool chronicleCampaignComplete_;
+    bool pendingRankUpgrade_;
+    QString pendingRankUpgradeOld_;
+    QString pendingRankUpgradeNew_;
+    QString pendingCharacterUnlockName_;
+    QString pendingCharacterUnlockRank_;
+    QString pendingCharacterUnlockImagePath_;
 };
 
 #endif // MAINWINDOW_H

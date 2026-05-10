@@ -6,8 +6,11 @@
 #include <QElapsedTimer>
 #include <QPixmap>
 #include <QColor>
+#include <optional>
 #include "ChronicleAiTypes.h"
+#include "CombatHighlightTracker.h"
 #include "Enums.h"
+#include "FighterAiBrain.h"
 #include "NetTypes.h"
 
 class GameManager;
@@ -40,6 +43,7 @@ public:
     bool isBattleRunning() const;
     bool isPaused() const;
     ChronicleBattleReport levelBattleReport() const;
+    std::optional<CombatHighlightSnapshot> levelBattleHighlight() const;
 
 signals:
     void battleFinished();
@@ -78,6 +82,9 @@ private:
                              bool localVictory,
                              double battleDurationSeconds,
                              int currentScore);
+    FighterAiContext buildEnemyAiContext(double distance) const;
+    void updateEnemyAiMemory(double dt);
+    void refreshEnemyAiDecision(double dt, double distance);
     void updatePlayerMovement(double dt);
     void updateEnemyAI(double dt);
     void tryPlayerAttack(double dt);
@@ -101,6 +108,17 @@ private:
     void spawnEnemyProjectile(EnemyType type, int damage);
     void updateEnemyProjectile(double dt);
     void tryPlayerHeal();
+    void renderBattleScene(QPainter& painter,
+                           bool includeTransientOverlays,
+                           bool focusHighlightCombatants = false);
+    void captureHighlightFrame(bool focusHighlightCombatants = false);
+    CombatHighlightCandidate buildHighlightCandidate(HighlightAttackType attackType,
+                                                     int damage,
+                                                     bool wasProjectile,
+                                                     int playerHpBefore,
+                                                     int enemyHpBefore,
+                                                     int enemyHpAfter) const;
+    bool considerPlayerHighlight(const CombatHighlightCandidate& candidate);
 
     GameManager *gameManager_;
     LanSessionManager *lanSessionManager_;
@@ -164,6 +182,7 @@ private:
     double arcenProjectileSpeed_;
     double arcenProjectileAnimTime_;
     int arcenProjectileFrame_;
+    HighlightAttackType arcenProjectileAttackType_;
     bool enemyProjectileActive_;
     bool enemyProjectileExploding_;
     bool enemyProjectileUsesArcenArrow_;
@@ -192,6 +211,15 @@ private:
     quint8 lastRemoteLanInputBits_;
     quint32 lanStateTick_;
     double enemyHealCooldown_;
+    FighterAiDecision enemyAiDecision_;
+    double enemyAiDecisionTimer_;
+    double enemyAiPlayerAttackMemory_;
+    double enemyAiPlayerMissMemory_;
+    double enemyAiPlayerHealMemory_;
+    double enemyAiEnemyDamageMemory_;
+    int enemyAiLastEnemyHp_;
+    AnimationState enemyAiLastAttack_;
+    CombatHighlightTracker highlightTracker_;
 
     static constexpr double PLAYER_START_X = 150.0;
     static constexpr double ENEMY_START_X = 850.0;

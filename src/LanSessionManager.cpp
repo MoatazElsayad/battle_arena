@@ -101,6 +101,10 @@ void LanSessionManager::setArenaName(const QString& arenaName) {
         snapshot_.arenaName = trimmed;
         updateStatusLine();
         emitSnapshot();
+
+        if (hasActiveSocket() && snapshot_.localRole == LanRole::HOST) {
+            sendArenaSelection();
+        }
     }
 }
 
@@ -321,6 +325,7 @@ void LanSessionManager::handleNewConnection() {
 
     sendHello();
     sendCharacterSelection();
+    sendArenaSelection();
     sendReadyState();
     pingTimer_->start();
 }
@@ -333,6 +338,7 @@ void LanSessionManager::handleSocketConnected() {
 
     sendHello();
     sendCharacterSelection();
+    sendArenaSelection();
     sendReadyState();
     pingTimer_->start();
 }
@@ -492,6 +498,16 @@ void LanSessionManager::sendCharacterSelection() {
     });
 }
 
+void LanSessionManager::sendArenaSelection() {
+    if (snapshot_.localRole != LanRole::HOST) {
+        return;
+    }
+
+    sendMessage(LanPacketType::ARENA_SELECT, QJsonObject{
+        {QStringLiteral("arenaName"), snapshot_.arenaName}
+    });
+}
+
 void LanSessionManager::sendReadyState() {
     sendMessage(LanPacketType::READY_STATE, QJsonObject{
         {QStringLiteral("ready"), snapshot_.localPlayer.ready}
@@ -527,7 +543,10 @@ void LanSessionManager::processIncomingLine(const QByteArray& line) {
         case LanPacketType::HELLO: {
             snapshot_.remotePlayer = lanPlayerFromJson(payload.value(QStringLiteral("player")).toObject());
             const QString arenaName = payload.value(QStringLiteral("arenaName")).toString();
-            if (!arenaName.trimmed().isEmpty()) {
+            const QString remoteRole = payload.value(QStringLiteral("role")).toString().trimmed();
+            const bool shouldApplyRemoteArena = snapshot_.localRole == LanRole::GUEST
+                || remoteRole.compare(QStringLiteral("Host"), Qt::CaseInsensitive) == 0;
+            if (shouldApplyRemoteArena && !arenaName.trimmed().isEmpty()) {
                 snapshot_.arenaName = arenaName.trimmed();
             }
             snapshot_.remoteConnected = true;
@@ -543,6 +562,14 @@ void LanSessionManager::processIncomingLine(const QByteArray& line) {
                          ? QStringLiteral("Unknown")
                          : snapshot_.remotePlayer.fighterName));
             break;
+        case LanPacketType::ARENA_SELECT: {
+            const QString arenaName = payload.value(QStringLiteral("arenaName")).toString().trimmed();
+            if (!arenaName.isEmpty()) {
+                snapshot_.arenaName = arenaName;
+                logEvent(QString("Battleground changed to %1.").arg(snapshot_.arenaName));
+            }
+            break;
+        }
         case LanPacketType::READY_STATE:
             snapshot_.remotePlayer.ready = payload.value(QStringLiteral("ready")).toBool(false);
             logEvent(QString("Remote ready state changed to %1.")
@@ -610,27 +637,27 @@ void LanSessionManager::updateDerivedState() {
 void LanSessionManager::updateStatusLine() {
     switch (snapshot_.state) {
         case LanSessionState::HOSTING:
-            snapshot_.statusLine = QString("Hosting on %1:%2. Waiting for a nearby challenger.")
+            snapshot_.statusLine = QString("Room is open on %1:%2. Waiting for another gladiator to join.")
                                        .arg(snapshot_.hostAddress)
                                        .arg(snapshot_.port);
             return;
         case LanSessionState::CONNECTING:
-            snapshot_.statusLine = QString("Connecting to %1:%2...")
+            snapshot_.statusLine = QString("Joining %1:%2...")
                                        .arg(snapshot_.hostAddress)
                                        .arg(snapshot_.port);
             return;
         case LanSessionState::LINKED:
-            snapshot_.statusLine = QStringLiteral("LAN link is stable. Sync fighters and mark both players ready.");
+            snapshot_.statusLine = QStringLiteral("The room is linked. Choose fighters, then get both sides ready.");
             return;
         case LanSessionState::READY_CHECK:
             snapshot_.statusLine = snapshot_.localRole == LanRole::HOST
-                ? QStringLiteral("Both gladiators are ready. Prime the match handoff when you want to launch the duel.")
-                : QStringLiteral("Both gladiators are ready. Waiting for the host to prime the match handoff.");
+                ? QStringLiteral("Both gladiators are ready. Start the duel whenever you want.")
+                : QStringLiteral("Both gladiators are ready. Waiting for the host to start the duel.");
             return;
         case LanSessionState::MATCH_PRIMED:
             snapshot_.statusLine = combatBridgeActive_
-                ? QStringLiteral("Arena Link realtime duel bridge is live.")
-                : QStringLiteral("Arena Link is primed. Launching the duel bridge next.");
+                ? QStringLiteral("The duel is live.")
+                : QStringLiteral("The duel is starting now.");
             return;
         case LanSessionState::ERROR:
             if (snapshot_.statusLine.trimmed().isEmpty()) {
@@ -639,7 +666,7 @@ void LanSessionManager::updateStatusLine() {
             return;
         case LanSessionState::IDLE:
         default:
-            snapshot_.statusLine = QStringLiteral("Host or join a nearby room to prepare a live LAN duel.");
+            snapshot_.statusLine = QStringLiteral("Open a room or join one to prepare a nearby duel.");
             return;
     }
 }

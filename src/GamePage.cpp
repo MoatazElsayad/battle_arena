@@ -98,6 +98,10 @@ ChronicleBattleReport GamePage::lastChronicleReport() const {
     return pendingChronicleReport_;
 }
 
+std::optional<CombatHighlightSnapshot> GamePage::lastBattleHighlight() const {
+    return pendingBattleHighlight_;
+}
+
 void GamePage::onLevelTransitionFinished() {
     if (pendingChronicleLevel_ > 0) {
         emit chronicleRequested(pendingChronicleLevel_, pendingChronicleCampaignComplete_);
@@ -137,6 +141,7 @@ void GamePage::onBattleFinished() {
     if (!player || !enemy) return;
 
     pendingChronicleReport_ = battleWidget_->levelBattleReport();
+    pendingBattleHighlight_ = battleWidget_->levelBattleHighlight();
     pendingChronicleReport_.completedLevel = gameManager_->getCurrentLevel();
     pendingChronicleReport_.totalLevels = gameManager_->getTotalLevels();
     pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();

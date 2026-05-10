@@ -63,6 +63,7 @@ private:
     void raiseError(const QString& message);
     void sendHello();
     void sendCharacterSelection();
+    void sendArenaSelection();
     void sendReadyState();
     void sendStartMatch();
     void sendMessage(LanPacketType type, const QJsonObject& payload);

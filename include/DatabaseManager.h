@@ -69,7 +69,7 @@ private:
         int losses = 0;
         double currentRating = 0.0;
         QString currentRank = QStringLiteral("Wanderer");
-        QString badge = QStringLiteral("Rookie");
+        QString badge = QStringLiteral("Wanderer");
         QString avatarPath;
     };
 

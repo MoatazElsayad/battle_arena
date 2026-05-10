@@ -85,6 +85,8 @@ public:
     DuelConfig getDuelConfig() const;
     bool isDuelMode() const;
     bool didWinDuel() const;
+    void setDifficulty(DifficultyLevel difficulty);
+    DifficultyLevel getDifficulty() const;
 
     // Ranking and Scoring Helpers
     static int calculateRewardForMatch(RunMode mode, bool victory, int stagesCleared, bool fullClear);
@@ -121,6 +123,7 @@ private:
     RunMode runMode_;
     DuelConfig duelConfig_;
     bool duelVictory_;
+    DifficultyLevel difficulty_;
 };
 
 #endif // GAMEMANAGER_H

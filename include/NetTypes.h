@@ -26,6 +26,7 @@ enum class LanSessionState {
 enum class LanPacketType {
     HELLO,
     CHARACTER_SELECT,
+    ARENA_SELECT,
     READY_STATE,
     START_MATCH,
     COMBAT_INPUT,
@@ -122,13 +123,13 @@ struct LanSessionSnapshot {
     LanSessionState state = LanSessionState::IDLE;
     QString hostAddress;
     quint16 port = 44777;
-    QString arenaName = QStringLiteral("Molten Gate");
+    QString arenaName = QStringLiteral("Colosseum");
     LanPlayerInfo localPlayer;
     LanPlayerInfo remotePlayer;
     bool remoteConnected = false;
     bool canStartMatch = false;
     int lastPingMs = -1;
-    QString statusLine = QStringLiteral("Open Arena Link to prepare a nearby duel.");
+    QString statusLine = QStringLiteral("Open or join a room to prepare a nearby duel.");
 };
 
 inline QString lanRoleDisplayName(LanRole role) {
