@@ -13,6 +13,14 @@ public:
     void completeCapture(const QByteArray& imageBytes,
                          const QString& imageMimeType,
                          const QDateTime& capturedAtUtc);
+    void completeClip(const QByteArray& clipSheetBytes,
+                      const QString& clipSheetMimeType,
+                      const QString& clipKind,
+                      int clipFrameCount,
+                      int clipFps,
+                      int clipFrameWidth,
+                      int clipFrameHeight,
+                      double clipDurationSeconds);
     std::optional<CombatHighlightSnapshot> snapshot() const;
 
 private:

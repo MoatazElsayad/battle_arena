@@ -13,7 +13,8 @@ class Enemy;
 
 enum class RunMode {
     CAMPAIGN,
-    DUEL
+    DUEL,
+    ZOMBIE
 };
 
 enum class DuelOpponentMode {
@@ -60,7 +61,9 @@ public:
     void startDuel(const std::string &playerName,
                    PlayerType playerType,
                    const DuelConfig& config);
+    void startZombieMode(const std::string &playerName, PlayerType playerType);
     bool advanceToNextLevel();
+    bool advanceZombieWave();
     void finishBattle();
     void addScore(int amount);
 
@@ -84,6 +87,7 @@ public:
     RunMode getRunMode() const;
     DuelConfig getDuelConfig() const;
     bool isDuelMode() const;
+    bool isZombieMode() const;
     bool didWinDuel() const;
     void setDifficulty(DifficultyLevel difficulty);
     DifficultyLevel getDifficulty() const;
@@ -124,6 +128,7 @@ private:
     DuelConfig duelConfig_;
     bool duelVictory_;
     DifficultyLevel difficulty_;
+    int zombieWaveIndex_;
 };
 
 #endif // GAMEMANAGER_H

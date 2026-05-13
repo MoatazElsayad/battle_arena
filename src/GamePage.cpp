@@ -140,6 +140,7 @@ void GamePage::onBattleFinished() {
     
     if (!player || !enemy) return;
 
+    battleWidget_->finalizeHighlightClip();
     pendingChronicleReport_ = battleWidget_->levelBattleReport();
     pendingBattleHighlight_ = battleWidget_->levelBattleHighlight();
     pendingChronicleReport_.completedLevel = gameManager_->getCurrentLevel();
@@ -186,7 +187,42 @@ void GamePage::onBattleFinished() {
         emit battleFinished();
         return;
     }
-    
+
+    if (gameManager_->isZombieMode()) {
+        const bool advancedLevelPrepared = player->isAlive()
+            && !gameManager_->hasCompletedCampaign()
+            && gameManager_->getCurrentLevel() == 2;
+        pendingChronicleReport_.victory = player->isAlive() && (advancedLevelPrepared || gameManager_->hasCompletedCampaign());
+        pendingChronicleReport_.campaignComplete = player->isAlive() && gameManager_->hasCompletedCampaign();
+        pendingChronicleReport_.completedLevel = advancedLevelPrepared ? 1 : gameManager_->getCurrentLevel();
+        pendingChronicleReport_.totalLevels = gameManager_->getTotalLevels();
+        pendingChronicleReport_.currentScore = gameManager_->getCurrentScore();
+        pendingChronicleReport_.nextEnemyName = pendingChronicleReport_.victory
+            ? QStringLiteral("Clean city")
+            : (advancedLevelPrepared ? QStringLiteral("Advanced zombies") : QStringLiteral("Infected streets"));
+        pendingChronicleReport_.nextEnemyType = QStringLiteral("Zombie Outbreak");
+
+        if (playerInfoLabel_) {
+            playerInfoLabel_->setText(pendingChronicleReport_.victory
+                ? "Zombie outbreak cleared."
+                : (advancedLevelPrepared
+                       ? "First zombie wave cleared."
+                       : "The zombie outbreak overran the city."));
+        }
+
+        if (advancedLevelPrepared) {
+            if (chronicleAiAdvisor_) {
+                chronicleAiAdvisor_->prefetchSummary(pendingChronicleReport_);
+            }
+            emit chronicleRequested(1, false);
+            return;
+        }
+
+        updateStats();
+        emit battleFinished();
+        return;
+    }
+
     if (player->isAlive()) {
         const int completedLevel = gameManager_->getCurrentLevel();
         gameManager_->addScore(50 + gameManager_->getCurrentLevel() * 15);

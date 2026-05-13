@@ -3,12 +3,17 @@
 #include <QCursor>
 #include <QDir>
 #include <QFileInfo>
+#include <QFont>
+#include <QGuiApplication>
 #include <QIcon>
 #include <QObject>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
+#include <QDebug>
+#include <QScreen>
+#include <QStyleFactory>
 #include <QStringList>
 #include <QTimer>
 #include <QWidget>
@@ -72,6 +77,17 @@ QString resolveAssetPath(const QString& relativePath) {
 } // namespace
 
 int main(int argc, char *argv[]) {
+    // Windows often reports a fractional logical desktop at 125%/150% scaling.
+    // The UI was tuned in WSL at 1:1 logical pixels, so normalize only native
+    // Windows builds to avoid text and fixed panels crowding each other.
+#if defined(Q_OS_WIN)
+    qputenv("QT_SCALE_FACTOR_ROUNDING_POLICY", "RoundPreferFloor");
+    qputenv("QT_AUTO_SCREEN_SCALE_FACTOR", "0");
+    qputenv("QT_ENABLE_HIGHDPI_SCALING", "1");
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::RoundPreferFloor);
+#endif
+
     // WSL/mesa environments can fail EGL/ZINK probing and crash on window creation.
     // Force a stable software stack before QApplication is constructed.
 #if defined(Q_OS_LINUX)
@@ -85,6 +101,20 @@ int main(int argc, char *argv[]) {
 #endif
 
     QApplication app(argc, argv);
+
+#if defined(Q_OS_WIN)
+    QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    QFont appFont(QStringLiteral("Segoe UI"));
+    appFont.setPointSize(10);
+    app.setFont(appFont);
+    if (const QScreen* screen = app.primaryScreen()) {
+        qDebug() << "Gladiators Windows UI compatibility:"
+                 << "screen" << screen->geometry()
+                 << "logicalDpi" << screen->logicalDotsPerInch()
+                 << "devicePixelRatio" << screen->devicePixelRatio();
+    }
+#endif
+
     QApplication::setOverrideCursor(QCursor(Qt::BlankCursor));
     const QString appIconPath = resolveAssetPath(QStringLiteral("assets/icons/shield.png"));
     if (!appIconPath.isEmpty()) {

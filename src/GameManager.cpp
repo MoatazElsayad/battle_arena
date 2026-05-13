@@ -35,6 +35,19 @@ constexpr std::array<EnemyDefinition, 3> kFinalWerewolfGuardians = {{
     {EnemyType::WHITE_WEREWOLF, "White Werewolf", 214, 27, 190.0f},
 }};
 
+constexpr std::array<EnemyDefinition, 4> kZombieLevelOne = {{
+    {EnemyType::ZOMBIE_1, "Zombie 1", 48, 8, 118.0f},
+    {EnemyType::ZOMBIE_2, "Zombie 2", 52, 8, 122.0f},
+    {EnemyType::ZOMBIE_3, "Zombie 3", 56, 9, 126.0f},
+    {EnemyType::ZOMBIE_4, "Zombie 4", 62, 10, 130.0f},
+}};
+
+constexpr std::array<EnemyDefinition, 3> kZombieLevelTwo = {{
+    {EnemyType::ADVANCED_ZOMBIE_1, "Advanced Zombie 1", 86, 13, 150.0f},
+    {EnemyType::ADVANCED_ZOMBIE_2, "Advanced Zombie 2", 94, 14, 156.0f},
+    {EnemyType::ADVANCED_ZOMBIE_3, "Advanced Zombie 3", 102, 15, 162.0f},
+}};
+
 constexpr std::array<PlayerType, 9> kPlayerRoster = {{
     PlayerType::ARCEN,
     PlayerType::DEMON_SLAYER,
@@ -174,12 +187,14 @@ GameManager::GameManager(QObject *parent)
       duelOpponentName_(""),
       duelArenaName_(""),
       campaignCompleted_(false),
-      difficulty_(DifficultyLevel::NORMAL) {
+      difficulty_(DifficultyLevel::NORMAL),
+      zombieWaveIndex_(0) {
     lanDuelMode_ = false;
     finalGuardianIndex_ = 0;
     runMode_ = RunMode::CAMPAIGN;
     duelConfig_ = DuelConfig();
     duelVictory_ = false;
+    zombieWaveIndex_ = 0;
     if (rand() == 0) srand(time(nullptr)); // seed random once
 }
 
@@ -209,6 +224,7 @@ void GameManager::startGame(const std::string &playerName, PlayerType playerType
     runMode_ = RunMode::CAMPAIGN;
     duelConfig_ = DuelConfig();
     duelVictory_ = false;
+    zombieWaveIndex_ = 0;
     state_ = GameState::PLAYING;
 
     delete player_;
@@ -267,6 +283,7 @@ void GameManager::startDuel(const std::string &playerName,
     duelConfig_ = config;
     duelVictory_ = false;
     lanDuelMode_ = false;
+    zombieWaveIndex_ = 0;
 
     playerName_ = playerName;
     selectedPlayerType_ = playerType;
@@ -299,6 +316,34 @@ void GameManager::startDuel(const std::string &playerName,
 
     delete currentEnemy_;
     currentEnemy_ = nullptr;
+    spawnEnemyForCurrentLevel();
+}
+
+void GameManager::startZombieMode(const std::string &playerName, PlayerType playerType) {
+    playerName_ = playerName;
+    selectedPlayerType_ = playerType;
+    duelOpponentPlayerType_ = PlayerType::KNIGHT;
+    duelOpponentName_.clear();
+    duelArenaName_ = "Zombie Outbreak";
+    currentScore_ = 0;
+    playerLevel_ = 1;
+    currentLevel_ = 1;
+    campaignCompleted_ = false;
+    lanDuelMode_ = false;
+    finalGuardianIndex_ = 0;
+    runMode_ = RunMode::ZOMBIE;
+    duelConfig_ = DuelConfig();
+    duelVictory_ = false;
+    zombieWaveIndex_ = 0;
+    state_ = GameState::PLAYING;
+
+    delete player_;
+    player_ = nullptr;
+
+    const PlayerStats playerStats = statsForPlayer(playerType);
+    player_ = new Player(playerStats.hp, playerStats.hp, 150.0f, 400.0f, 200.0f, playerStats.attack, playerType);
+    player_->setName(playerName);
+
     spawnEnemyForCurrentLevel();
 }
 
@@ -367,10 +412,17 @@ int GameManager::getTotalLevels() const {
     if (runMode_ == RunMode::DUEL) {
         return 1;
     }
+    if (runMode_ == RunMode::ZOMBIE) {
+        return 2;
+    }
     return static_cast<int>(kEnemyCampaign.size()) + 1;
 }
 
 std::string GameManager::getBattleTitle() const {
+    if (runMode_ == RunMode::ZOMBIE) {
+        return "Zombie Outbreak";
+    }
+
     if (runMode_ == RunMode::DUEL) {
         const std::string playerLabel = playerName_.empty() ? "Gladiator" : playerName_;
         const std::string opponentLabel = duelOpponentName_.empty() ? "Exhibition Rival" : duelOpponentName_;
@@ -437,6 +489,36 @@ bool GameManager::advanceFinalGuardianWave() {
     return currentEnemy_ != nullptr;
 }
 
+bool GameManager::advanceZombieWave() {
+    if (runMode_ != RunMode::ZOMBIE) {
+        return false;
+    }
+
+    const int levelQuota = currentLevel_ == 1
+        ? static_cast<int>(kZombieLevelOne.size())
+        : static_cast<int>(kZombieLevelTwo.size());
+
+    ++zombieWaveIndex_;
+    if (zombieWaveIndex_ < levelQuota) {
+        spawnEnemyForCurrentLevel();
+        return currentEnemy_ != nullptr;
+    }
+
+    if (currentLevel_ < getTotalLevels()) {
+        ++currentLevel_;
+        zombieWaveIndex_ = 0;
+        if (player_) {
+            player_->takeDamage(-35);
+        }
+        spawnEnemyForCurrentLevel();
+        return currentEnemy_ != nullptr;
+    }
+
+    campaignCompleted_ = true;
+    state_ = GameState::GAME_OVER;
+    return false;
+}
+
 Player* GameManager::getPlayer() const {
     return player_;
 }
@@ -455,6 +537,10 @@ DuelConfig GameManager::getDuelConfig() const {
 
 bool GameManager::isDuelMode() const {
     return runMode_ == RunMode::DUEL;
+}
+
+bool GameManager::isZombieMode() const {
+    return runMode_ == RunMode::ZOMBIE;
 }
 
 bool GameManager::didWinDuel() const {
@@ -524,6 +610,33 @@ void GameManager::spawnEnemyForCurrentLevel() {
         return;
     }
 
+    if (runMode_ == RunMode::ZOMBIE) {
+        if (currentLevel_ == 1) {
+            const int index = std::clamp(zombieWaveIndex_, 0, static_cast<int>(kZombieLevelOne.size()) - 1);
+            const EnemyDefinition definition = kZombieLevelOne[static_cast<size_t>(index)];
+            currentEnemy_ = new Enemy(definition.type,
+                                      definition.name,
+                                      definition.hp,
+                                      definition.hp,
+                                      700.0f,
+                                      400.0f,
+                                      definition.speed,
+                                      definition.attack);
+        } else {
+            const int index = std::clamp(zombieWaveIndex_, 0, static_cast<int>(kZombieLevelTwo.size()) - 1);
+            const EnemyDefinition definition = kZombieLevelTwo[static_cast<size_t>(index)];
+            currentEnemy_ = new Enemy(definition.type,
+                                      definition.name,
+                                      definition.hp,
+                                      definition.hp,
+                                      700.0f,
+                                      400.0f,
+                                      definition.speed,
+                                      definition.attack);
+        }
+        return;
+    }
+
     EnemyDefinition definition = kEnemyCampaign.back();
     if (isFinalKingStage()) {
         const int waveIndex = std::clamp(finalGuardianIndex_, 0, static_cast<int>(kFinalWerewolfGuardians.size()) - 1);
@@ -550,6 +663,12 @@ void GameManager::spawnEnemyForCurrentLevel() {
 int GameManager::calculateRewardForMatch(RunMode mode, bool victory, int stagesCleared, bool fullClear) {
     if (mode == RunMode::DUEL) {
         return victory ? 50 : 10;
+    }
+    if (mode == RunMode::ZOMBIE) {
+        if (fullClear) {
+            return 180;
+        }
+        return victory ? qMax(60, stagesCleared * 60) : 10;
     }
     else { // Campaign (Save the Kings)
         if (fullClear) {

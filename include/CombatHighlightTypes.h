@@ -37,6 +37,14 @@ struct CombatHighlightSnapshot {
     QDateTime capturedAtUtc;
     QByteArray imageBytes;
     QString imageMimeType;
+    QByteArray clipSheetBytes;
+    QString clipSheetMimeType;
+    QString clipKind;
+    int clipFrameCount = 0;
+    int clipFps = 0;
+    int clipFrameWidth = 0;
+    int clipFrameHeight = 0;
+    double clipDurationSeconds = 0.0;
 };
 
 QString highlightAttackTypeApiKey(HighlightAttackType attackType);

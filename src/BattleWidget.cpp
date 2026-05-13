@@ -21,6 +21,8 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
+#include <QTransform>
+#include <array>
 
 namespace {
 QString resolveAssetPath(const QString& relativePath) {
@@ -89,6 +91,14 @@ QString enemyProfilePath(EnemyType type) {
         case EnemyType::RED_WEREWOLF:
         case EnemyType::WHITE_WEREWOLF:
             return QStringLiteral("assets/beasts/werewolf/profile.png");
+        case EnemyType::ZOMBIE_1:
+        case EnemyType::ZOMBIE_2:
+        case EnemyType::ZOMBIE_3:
+        case EnemyType::ZOMBIE_4:
+        case EnemyType::ADVANCED_ZOMBIE_1:
+        case EnemyType::ADVANCED_ZOMBIE_2:
+        case EnemyType::ADVANCED_ZOMBIE_3:
+            return QStringLiteral("assets/beasts/zombies/Zombie_1/Idle.png");
     }
     return QString();
 }
@@ -383,6 +393,13 @@ QString enemyTypeLabel(EnemyType type) {
         case EnemyType::BLACK_WEREWOLF: return "Black Werewolf";
         case EnemyType::RED_WEREWOLF: return "Red Werewolf";
         case EnemyType::WHITE_WEREWOLF: return "White Werewolf";
+        case EnemyType::ZOMBIE_1: return "Zombie 1";
+        case EnemyType::ZOMBIE_2: return "Zombie 2";
+        case EnemyType::ZOMBIE_3: return "Zombie 3";
+        case EnemyType::ZOMBIE_4: return "Zombie 4";
+        case EnemyType::ADVANCED_ZOMBIE_1: return "Advanced Zombie 1";
+        case EnemyType::ADVANCED_ZOMBIE_2: return "Advanced Zombie 2";
+        case EnemyType::ADVANCED_ZOMBIE_3: return "Advanced Zombie 3";
     }
     return "Enemy";
 }
@@ -441,9 +458,13 @@ BattleWidget::BattleWidget(QWidget *parent)
       playerAnimChar_(new AnimatedCharacter(this)),
       enemyAnimChar_(new AnimatedCharacter(this)),
     playerAnimManager_(new AnimationManager()),
-    enemyAnimManager_(new AnimationManager()),
+      enemyAnimManager_(new AnimationManager()),
       movingLeft_(false),
       movingRight_(false),
+      keyboardMovingLeft_(false),
+      keyboardMovingRight_(false),
+      controllerMovingLeft_(false),
+      controllerMovingRight_(false),
       attackPressed_(false),
       healPressed_(false),
       pausePressed_(false),
@@ -481,7 +502,7 @@ BattleWidget::BattleWidget(QWidget *parent)
     enemyProjectileAnimTime_(0.0),
     enemyProjectileFrame_(0),
     enemyProjectileExplosionTime_(0.0),
-      statusMessage_("Press A/D to move, J to attack, H to heal, ESC to pause"),
+      statusMessage_("Keyboard: A/D move, J/K/L attack, H heal. Controller: left stick move, Square/Triangle/Circle attack, R1 heal."),
       statusDisplayTime_(0.0),
       queuedPlayerAttackState_(AnimationState::ATTACK1),
       levelTransitionActive_(false),
@@ -507,7 +528,15 @@ BattleWidget::BattleWidget(QWidget *parent)
       enemyAiPlayerHealMemory_(0.0),
       enemyAiEnemyDamageMemory_(0.0),
       enemyAiLastEnemyHp_(0),
-      enemyAiLastAttack_(AnimationState::ATTACK1) {
+      enemyAiLastAttack_(AnimationState::ATTACK1),
+      zombieSpawnDelay_(0.0),
+      zombieIntroTime_(0.0),
+      zombieIntroActive_(false),
+      zombieEnteringFromLeft_(false),
+      zombieCityCleaned_(false),
+      zombieLevelTransitionPending_(false),
+      highlightFrameAccumulator_(0.0),
+      highlightPostFramesRemaining_(0) {
     // Sound teammate:
     // Most combat SFX will be triggered from this class.
 
@@ -538,6 +567,29 @@ double BattleWidget::groundY() const {
 }
 
 void BattleWidget::refreshArenaBackground() {
+    if (gameManager_ && gameManager_->isZombieMode()) {
+        QString backgroundPath;
+        if (zombieIntroActive_) {
+            backgroundPath = QStringLiteral("assets/backgrounds/intro.png");
+        } else if (zombieCityCleaned_) {
+            backgroundPath = QStringLiteral("assets/backgrounds/city.png");
+        } else {
+            backgroundPath = gameManager_->getCurrentLevel() >= 2
+                ? QStringLiteral("assets/backgrounds/zombie_lvl2.png")
+                : QStringLiteral("assets/backgrounds/zombie_lvl1.png");
+        }
+
+        const QString resolved = resolveAssetPath(backgroundPath);
+        if (!resolved.isEmpty()) {
+            const QPixmap zombieBackdrop(resolved);
+            if (!zombieBackdrop.isNull()) {
+                arenaBackgroundPlaceholder_ = zombieBackdrop;
+                arenaGroundBaseColor_ = sampleGroundColorFromBackground(arenaBackgroundPlaceholder_);
+                return;
+            }
+        }
+    }
+
     if (gameManager_ && gameManager_->isLanDuel()) {
         const QString duelBackdropPath = resolveAssetPath("assets/backgrounds/city.png");
         if (!duelBackdropPath.isEmpty()) {
@@ -709,6 +761,11 @@ void BattleWidget::startBattle() {
     // Play battle start / wave start sound here.
     if (!gameManager_) return;
 
+    const bool zombieMode = gameManager_->isZombieMode();
+    const bool playZombieIntro = zombieMode && gameManager_->getCurrentLevel() == 1;
+    resetZombieModeState();
+    zombieIntroActive_ = playZombieIntro;
+    zombieIntroTime_ = playZombieIntro ? 10.0 : 0.0;
     refreshArenaBackground();
     loadPrototypeAnimations();
     loadBattleProfilePortraits();
@@ -723,14 +780,13 @@ void BattleWidget::startBattle() {
     levelTransitionActive_ = false;
     finalRescueTransitionActive_ = false;
     battleEndDelay_ = 0.0;
-    introLockTime_ = BATTLE_COUNTDOWN_DURATION;
+    introLockTime_ = zombieMode
+        ? (playZombieIntro ? 10.0 : 4.2)
+        : BATTLE_COUNTDOWN_DURATION;
     levelTransitionTime_ = 0.0;
     levelTransitionStartPlayerX_ = 0.0;
     levelTransitionStartKingX_ = 0.0;
-    movingLeft_ = false;
-    movingRight_ = false;
-    attackPressed_ = false;
-    healPressed_ = false;
+    clearLocalInputState();
     pausePressed_ = false;
     duelRemoteScore_ = 0;
     lanGuestStateSeen_ = false;
@@ -740,7 +796,7 @@ void BattleWidget::startBattle() {
     lastRemoteLanInputBits_ = 0;
     lanStateTick_ = 0;
     playerCooldown_ = 0.0;
-    enemyCooldown_ = BATTLE_COUNTDOWN_DURATION + 0.45;
+    enemyCooldown_ = introLockTime_ + 0.45;
     enemyHealCooldown_ = 0.0;
     enemyAiDecision_ = FighterAiDecision();
     enemyAiDecisionTimer_ = 0.0;
@@ -778,7 +834,12 @@ void BattleWidget::startBattle() {
     const Enemy *enemy = gameManager_->getCurrentEnemy();
     if (enemy) {
         enemyAiLastEnemyHp_ = enemy->getHealth();
-        if (gameManager_->isLanDuel()) {
+        if (zombieMode) {
+            statusMessage_ = playZombieIntro
+                ? QStringLiteral("The city is full of zombies. Watch the streets...")
+                : QString("Zombie Outbreak %1/2 - infected entering from the city edge.")
+                      .arg(gameManager_->getCurrentLevel());
+        } else if (gameManager_->isLanDuel()) {
             statusMessage_ = QString("Arena Link Duel - %1 enters the arena!")
                                  .arg(QString::fromStdString(enemy->getName()));
         } else if (gameManager_->isDuelMode()) {
@@ -801,6 +862,9 @@ void BattleWidget::startBattle() {
     enemyProjectileFrame_ = 0;
     enemyProjectileExplosionTime_ = 0.0;
     arcenProjectileAttackType_ = HighlightAttackType::Attack1;
+    if (zombieMode && !playZombieIntro) {
+        prepareZombieSpawn(true);
+    }
 
     const Player *player = gameManager_->getPlayer();
     levelBattleReport_ = ChronicleBattleReport();
@@ -848,7 +912,7 @@ void BattleWidget::startBattle() {
     remoteBattleReport_.currentScore = 0;
     remoteBattleReport_.victory = false;
     remoteBattleReport_.campaignComplete = false;
-    highlightTracker_.reset();
+    resetHighlightReplay();
     
     elapsedTimer_.start();
     levelClock_.start();
@@ -868,10 +932,7 @@ void BattleWidget::startLevelTransition() {
     levelTransitionStartKingX_ = width() * 0.90;
     battleEndDelay_ = 0.0;
     introLockTime_ = 0.0;
-    movingLeft_ = false;
-    movingRight_ = false;
-    attackPressed_ = false;
-    healPressed_ = false;
+    clearLocalInputState();
     arcenProjectileActive_ = false;
     enemyProjectileActive_ = false;
     enemyProjectileExploding_ = false;
@@ -916,10 +977,7 @@ void BattleWidget::pauseBattle() {
     }
 
     pausePressed_ = true;
-    movingLeft_ = false;
-    movingRight_ = false;
-    attackPressed_ = false;
-    healPressed_ = false;
+    clearLocalInputState();
     frameTimer_.stop();
     update();
 }
@@ -1371,6 +1429,11 @@ void BattleWidget::renderBattleScene(QPainter& painter,
                                      bool focusHighlightCombatants) {
     drawArenaBackground(painter);
     const double floorY = groundY();
+
+    if (gameManager_ && gameManager_->isZombieMode() && zombieIntroActive_) {
+        drawZombieIntroScene(painter);
+        return;
+    }
     
     if (!gameManager_ || !gameManager_->getPlayer() || !gameManager_->getCurrentEnemy()) {
         painter.setPen(QColor("#D4AF37"));
@@ -1426,6 +1489,7 @@ void BattleWidget::renderBattleScene(QPainter& painter,
     if (includeTransientOverlays) {
         drawFinalRescueDialogue(painter);
         drawCountdownOverlay(painter);
+        drawZombieCityClearedOverlay(painter);
     }
 }
 
@@ -1455,6 +1519,199 @@ void BattleWidget::captureHighlightFrame(bool focusHighlightCombatants) {
     }
 
     highlightTracker_.completeCapture(imageBytes, QStringLiteral("image/png"), QDateTime::currentDateTimeUtc());
+}
+
+QImage BattleWidget::captureHighlightReplayFrame() const {
+    if (width() <= 0 || height() <= 0) {
+        return QImage();
+    }
+
+    QPixmap capture(size());
+    capture.fill(Qt::transparent);
+
+    {
+        QPainter capturePainter(&capture);
+        capturePainter.setRenderHint(QPainter::Antialiasing, true);
+        const_cast<BattleWidget*>(this)->renderBattleScene(capturePainter, false, true);
+    }
+
+    QImage image = capture.toImage().convertToFormat(QImage::Format_RGB32);
+    const double targetRatio = double(HIGHLIGHT_CLIP_FRAME_WIDTH) / double(HIGHLIGHT_CLIP_FRAME_HEIGHT);
+    QRect cropRect = image.rect();
+    if (image.height() > 0 && image.width() / double(image.height()) > targetRatio) {
+        const int cropWidth = qMax(1, int(image.height() * targetRatio));
+        cropRect = QRect((image.width() - cropWidth) / 2, 0, cropWidth, image.height());
+    } else if (image.width() > 0) {
+        const int cropHeight = qMax(1, int(image.width() / targetRatio));
+        cropRect = QRect(0, qMax(0, (image.height() - cropHeight) / 2), image.width(), qMin(cropHeight, image.height()));
+    }
+
+    return image.copy(cropRect).scaled(HIGHLIGHT_CLIP_FRAME_WIDTH,
+                                      HIGHLIGHT_CLIP_FRAME_HEIGHT,
+                                      Qt::IgnoreAspectRatio,
+                                      Qt::SmoothTransformation);
+}
+
+QByteArray BattleWidget::buildHighlightClipSheet(QString* outMimeType) const {
+    if (activeHighlightClipFrames_.isEmpty()) {
+        return QByteArray();
+    }
+
+    QVector<QImage> frames = activeHighlightClipFrames_;
+    const QImage fallbackFrame = frames.last().isNull() ? captureHighlightReplayFrame() : frames.last();
+    while (frames.size() < HIGHLIGHT_CLIP_FRAME_COUNT && !fallbackFrame.isNull()) {
+        frames.append(fallbackFrame);
+    }
+    if (frames.size() > HIGHLIGHT_CLIP_FRAME_COUNT) {
+        frames = frames.mid(frames.size() - HIGHLIGHT_CLIP_FRAME_COUNT);
+    }
+
+    const int rows = qMax(1, (HIGHLIGHT_CLIP_FRAME_COUNT + HIGHLIGHT_CLIP_COLUMNS - 1) / HIGHLIGHT_CLIP_COLUMNS);
+    QImage sheet(HIGHLIGHT_CLIP_FRAME_WIDTH * HIGHLIGHT_CLIP_COLUMNS,
+                 HIGHLIGHT_CLIP_FRAME_HEIGHT * rows,
+                 QImage::Format_RGB32);
+    sheet.fill(QColor("#120b08"));
+
+    {
+        QPainter painter(&sheet);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        for (int i = 0; i < frames.size(); ++i) {
+            const QImage frame = frames[i].isNull()
+                ? fallbackFrame
+                : frames[i].scaled(HIGHLIGHT_CLIP_FRAME_WIDTH,
+                                   HIGHLIGHT_CLIP_FRAME_HEIGHT,
+                                   Qt::IgnoreAspectRatio,
+                                   Qt::SmoothTransformation);
+            const int col = i % HIGHLIGHT_CLIP_COLUMNS;
+            const int row = i / HIGHLIGHT_CLIP_COLUMNS;
+            painter.drawImage(QRect(col * HIGHLIGHT_CLIP_FRAME_WIDTH,
+                                    row * HIGHLIGHT_CLIP_FRAME_HEIGHT,
+                                    HIGHLIGHT_CLIP_FRAME_WIDTH,
+                                    HIGHLIGHT_CLIP_FRAME_HEIGHT),
+                              frame);
+        }
+    }
+
+    auto saveSheet = [&](const char* format, int quality, const QString& mimeType) {
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        if (!buffer.open(QIODevice::WriteOnly) || !sheet.save(&buffer, format, quality)) {
+            return QByteArray();
+        }
+        if (outMimeType) {
+            *outMimeType = mimeType;
+        }
+        return bytes;
+    };
+
+    for (const char* format : {"JPEG", "JPG"}) {
+        for (int quality : {72, 64, 56, 48}) {
+            QByteArray bytes = saveSheet(format, quality, QStringLiteral("image/jpeg"));
+            if (!bytes.isEmpty() && bytes.size() <= 3800 * 1024) {
+                return bytes;
+            }
+        }
+    }
+
+    QByteArray pngBytes = saveSheet("PNG", -1, QStringLiteral("image/png"));
+    if (!pngBytes.isEmpty()) {
+        if (pngBytes.size() > 3800 * 1024) {
+            qWarning() << "BattleWidget: highlight clip PNG exceeds target size" << pngBytes.size();
+        }
+        return pngBytes;
+    }
+
+    qWarning() << "BattleWidget: failed to encode highlight replay sprite sheet";
+    return QByteArray();
+}
+
+void BattleWidget::resetHighlightReplay() {
+    highlightTracker_.reset();
+    rollingHighlightFrames_.clear();
+    activeHighlightClipFrames_.clear();
+    highlightFrameAccumulator_ = 0.0;
+    highlightPostFramesRemaining_ = 0;
+}
+
+void BattleWidget::recordHighlightReplayFrame(double dt) {
+    if (!gameManager_ || gameManager_->isLanDuel() || width() <= 0 || height() <= 0) {
+        return;
+    }
+
+    highlightFrameAccumulator_ += dt;
+    const double interval = 1.0 / double(HIGHLIGHT_CLIP_FPS);
+    if (highlightFrameAccumulator_ < interval) {
+        return;
+    }
+    highlightFrameAccumulator_ = std::fmod(highlightFrameAccumulator_, interval);
+
+    const QImage frame = captureHighlightReplayFrame();
+    if (frame.isNull()) {
+        return;
+    }
+
+    rollingHighlightFrames_.append(frame);
+    while (rollingHighlightFrames_.size() > HIGHLIGHT_CLIP_FRAME_COUNT) {
+        rollingHighlightFrames_.removeFirst();
+    }
+
+    if (highlightPostFramesRemaining_ > 0 && !activeHighlightClipFrames_.isEmpty()) {
+        activeHighlightClipFrames_.append(frame);
+        --highlightPostFramesRemaining_;
+        if (highlightPostFramesRemaining_ <= 0 || activeHighlightClipFrames_.size() >= HIGHLIGHT_CLIP_FRAME_COUNT) {
+            finalizeHighlightClip();
+        }
+    }
+}
+
+void BattleWidget::beginHighlightClipCapture(const QImage& impactFrame) {
+    activeHighlightClipFrames_.clear();
+
+    const int start = qMax(0, rollingHighlightFrames_.size() - HIGHLIGHT_CLIP_PRE_FRAMES);
+    for (int i = start; i < rollingHighlightFrames_.size(); ++i) {
+        activeHighlightClipFrames_.append(rollingHighlightFrames_[i]);
+    }
+    if (!impactFrame.isNull()) {
+        activeHighlightClipFrames_.append(impactFrame);
+    }
+
+    while (activeHighlightClipFrames_.size() > HIGHLIGHT_CLIP_FRAME_COUNT) {
+        activeHighlightClipFrames_.removeFirst();
+    }
+
+    highlightPostFramesRemaining_ = qMax(0, HIGHLIGHT_CLIP_FRAME_COUNT - activeHighlightClipFrames_.size());
+}
+
+void BattleWidget::finalizeHighlightClip() {
+    if (activeHighlightClipFrames_.isEmpty()) {
+        return;
+    }
+
+    if (activeHighlightClipFrames_.size() < HIGHLIGHT_CLIP_FRAME_COUNT) {
+        QImage fallback = activeHighlightClipFrames_.last();
+        if (fallback.isNull()) {
+            fallback = captureHighlightReplayFrame();
+        }
+        while (activeHighlightClipFrames_.size() < HIGHLIGHT_CLIP_FRAME_COUNT && !fallback.isNull()) {
+            activeHighlightClipFrames_.append(fallback);
+        }
+    }
+
+    QString clipMimeType = QStringLiteral("image/jpeg");
+    const QByteArray sheetBytes = buildHighlightClipSheet(&clipMimeType);
+    if (sheetBytes.isEmpty()) {
+        return;
+    }
+
+    highlightTracker_.completeClip(sheetBytes,
+                                   clipMimeType,
+                                   QStringLiteral("sprite_sheet_v1"),
+                                   HIGHLIGHT_CLIP_FRAME_COUNT,
+                                   HIGHLIGHT_CLIP_FPS,
+                                   HIGHLIGHT_CLIP_FRAME_WIDTH,
+                                   HIGHLIGHT_CLIP_FRAME_HEIGHT,
+                                   HIGHLIGHT_CLIP_DURATION_SECONDS);
+    highlightPostFramesRemaining_ = 0;
 }
 
 CombatHighlightCandidate BattleWidget::buildHighlightCandidate(HighlightAttackType attackType,
@@ -1815,6 +2072,132 @@ void BattleWidget::drawCountdownOverlay(QPainter &painter) {
     painter.restore();
 }
 
+void BattleWidget::drawZombieIntroScene(QPainter &painter) {
+    if (!gameManager_ || !gameManager_->isZombieMode()) {
+        return;
+    }
+
+    const double elapsed = qBound(0.0, 10.0 - zombieIntroTime_, 10.0);
+    const double progress = elapsed / 10.0;
+    const double floorY = groundY() + 8.0;
+
+    painter.save();
+    painter.fillRect(rect(), QColor(4, 3, 3, 76));
+
+    struct IntroZombie {
+        int index;
+        bool exitsLeft;
+        double lane;
+        double scale;
+    };
+
+    const std::array<IntroZombie, 4> zombies = {{
+        {1, true, 0.34, 0.86},
+        {2, true, 0.45, 0.92},
+        {3, false, 0.56, 0.90},
+        {4, false, 0.66, 0.96},
+    }};
+
+    for (const IntroZombie& zombie : zombies) {
+        const QString path = resolveAssetPath(QStringLiteral("assets/beasts/zombies/Zombie_%1/Walk.png").arg(zombie.index));
+        QPixmap sheet(path);
+        if (sheet.isNull()) {
+            continue;
+        }
+
+        const int frameCount = zombie.index == 4 ? 12 : 10;
+        const int frameWidth = qMax(1, sheet.width() / frameCount);
+        const int frameIndex = static_cast<int>(elapsed * 8.0 + zombie.index * 2) % frameCount;
+        QPixmap frame = sheet.copy(frameIndex * frameWidth, 0, frameWidth, sheet.height());
+        if (!zombie.exitsLeft) {
+            frame = frame.transformed(QTransform().scale(-1, 1));
+        }
+
+        const double gatherX = width() * zombie.lane;
+        const double entranceX = zombie.exitsLeft ? -120.0 - zombie.index * 18.0 : width() + 120.0 + zombie.index * 18.0;
+        const double exitX = zombie.exitsLeft ? -150.0 - zombie.index * 26.0 : width() + 150.0 + zombie.index * 26.0;
+
+        double x = gatherX;
+        if (progress < 0.60) {
+            const double t = qBound(0.0, progress / 0.60, 1.0);
+            x = entranceX + (gatherX - entranceX) * t;
+        } else {
+            const double t = qBound(0.0, (progress - 0.60) / 0.40, 1.0);
+            x = gatherX + (exitX - gatherX) * t;
+        }
+
+        const double targetHeight = qMax(112.0, height() * 0.24 * zombie.scale);
+        const double targetWidth = targetHeight * (double(frame.width()) / qMax(1, frame.height()));
+        QRectF target(x - targetWidth * 0.5,
+                      floorY - targetHeight - (zombie.index % 2) * 10.0,
+                      targetWidth,
+                      targetHeight);
+
+        painter.setOpacity(0.95);
+        painter.drawPixmap(target, frame, frame.rect());
+    }
+
+    painter.setOpacity(1.0);
+    painter.fillRect(rect(), QColor(0, 0, 0, 58));
+
+    const QRectF panel(width() * 0.20, height() * 0.12, width() * 0.60, height() * 0.18);
+    QPainterPath panelPath;
+    panelPath.addRoundedRect(panel, 22.0, 22.0);
+    painter.fillPath(panelPath, QColor(18, 8, 7, 202));
+    painter.setPen(QPen(QColor(211, 158, 38, 210), 2));
+    painter.drawPath(panelPath);
+
+    QFont titleFont("Showcard Gothic", qMax(26, static_cast<int>(height() * 0.052)), QFont::Black);
+    painter.setFont(titleFont);
+    painter.setPen(QColor("#FFD21F"));
+    painter.drawText(panel.adjusted(16, 12, -16, -panel.height() * 0.42),
+                     Qt::AlignCenter,
+                     QStringLiteral("THE CITY IS FULL OF ZOMBIES"));
+
+    QFont bodyFont("Segoe UI", qMax(12, static_cast<int>(height() * 0.022)), QFont::DemiBold);
+    painter.setFont(bodyFont);
+    painter.setPen(QColor("#FFE6B0"));
+    painter.drawText(panel.adjusted(26, panel.height() * 0.50, -26, -12),
+                     Qt::AlignCenter | Qt::TextWordWrap,
+                     progress < 0.60
+                         ? QStringLiteral("Four infected enter the ruined streets.")
+                         : QStringLiteral("Two vanish left, two vanish right. Clear them one by one."));
+
+    painter.restore();
+}
+
+void BattleWidget::drawZombieCityClearedOverlay(QPainter &painter) {
+    if (!gameManager_ || !gameManager_->isZombieMode() || !zombieCityCleaned_) {
+        return;
+    }
+
+    const double fade = qBound(0.0, battleEndDelay_ / 3.2, 1.0);
+    painter.save();
+    painter.fillRect(rect(), QColor(6, 16, 13, static_cast<int>(72 + fade * 56)));
+
+    const QRectF panel(width() * 0.22, height() * 0.30, width() * 0.56, height() * 0.22);
+    QPainterPath path;
+    path.addRoundedRect(panel, 24.0, 24.0);
+    painter.fillPath(path, QColor(10, 24, 18, 218));
+    painter.setPen(QPen(QColor(80, 220, 150, 210), 2));
+    painter.drawPath(path);
+
+    QFont titleFont("Showcard Gothic", qMax(30, static_cast<int>(height() * 0.06)), QFont::Black);
+    painter.setFont(titleFont);
+    painter.setPen(QColor("#B7FFD1"));
+    painter.drawText(panel.adjusted(18, 20, -18, -panel.height() * 0.42),
+                     Qt::AlignCenter,
+                     QStringLiteral("CITY ZOMBIE FREE"));
+
+    QFont bodyFont("Segoe UI", qMax(13, static_cast<int>(height() * 0.024)), QFont::DemiBold);
+    painter.setFont(bodyFont);
+    painter.setPen(QColor("#F5FFE7"));
+    painter.drawText(panel.adjusted(28, panel.height() * 0.54, -28, -18),
+                     Qt::AlignCenter | Qt::TextWordWrap,
+                     QStringLiteral("The last infected falls. The streets are clean again."));
+    painter.restore();
+}
+
 void BattleWidget::keyPressEvent(QKeyEvent *event) {
     if (event->isAutoRepeat()) return;
 
@@ -1822,10 +2205,7 @@ void BattleWidget::keyPressEvent(QKeyEvent *event) {
     lanHostAuthority_ = lanBridgeActive_ && lanSessionManager_
         && lanSessionManager_->snapshot().localRole == LanRole::HOST;
 
-    PlayerType playerType = PlayerType::KNIGHT;
-    if (gameManager_) {
-        playerType = gameManager_->getSelectedPlayerType();
-    }
+    const PlayerType playerType = selectedPlayerType();
 
     auto rejectAction = [this](const QString &text) {
         statusMessage_ = text;
@@ -1835,38 +2215,27 @@ void BattleWidget::keyPressEvent(QKeyEvent *event) {
     switch (event->key()) {
         case Qt::Key_A:
         case Qt::Key_Left:
-            movingLeft_ = true;
+            keyboardMovingLeft_ = true;
+            refreshCombinedMovementInput();
             break;
         case Qt::Key_D:
         case Qt::Key_Right:
-            movingRight_ = true;
+            keyboardMovingRight_ = true;
+            refreshCombinedMovementInput();
             break;
         case Qt::Key_J:
         case Qt::Key_Space:
-            if (InputHandler::canPerformAction(playerType, PlayerAction::ATTACK1)) {
-                attackPressed_ = true;
-                queuedPlayerAttackState_ = AnimationState::ATTACK1;
-            } else {
+            if (!queuePlayerAttack(AnimationState::ATTACK1, false)) {
                 rejectAction("This character cannot use Attack 1");
             }
             break;
         case Qt::Key_K:
-            if (InputHandler::canPerformAction(playerType, PlayerAction::ATTACK2)) {
-                attackPressed_ = true;
-                queuedPlayerAttackState_ = AnimationState::ATTACK2;
-                statusMessage_ = "Attack 2 queued";
-                statusDisplayTime_ = 0.8;
-            } else {
+            if (!queuePlayerAttack(AnimationState::ATTACK2, true)) {
                 rejectAction("This character has no Attack 2");
             }
             break;
         case Qt::Key_L:
-            if (InputHandler::canPerformAction(playerType, PlayerAction::ATTACK3)) {
-                attackPressed_ = true;
-                queuedPlayerAttackState_ = AnimationState::ATTACK3;
-                statusMessage_ = "Attack 3 queued";
-                statusDisplayTime_ = 0.8;
-            } else {
+            if (!queuePlayerAttack(AnimationState::ATTACK3, true)) {
                 rejectAction("This character has no Attack 3");
             }
             break;
@@ -1906,11 +2275,13 @@ void BattleWidget::keyReleaseEvent(QKeyEvent *event) {
     switch (event->key()) {
         case Qt::Key_A:
         case Qt::Key_Left:
-            movingLeft_ = false;
+            keyboardMovingLeft_ = false;
+            refreshCombinedMovementInput();
             break;
         case Qt::Key_D:
         case Qt::Key_Right:
-            movingRight_ = false;
+            keyboardMovingRight_ = false;
+            refreshCombinedMovementInput();
             break;
         case Qt::Key_J:
         case Qt::Key_Space:
@@ -1989,6 +2360,8 @@ void BattleWidget::advanceFrame() {
 
     if (!battleActive_) return;
 
+    updateControllerInput();
+
     if (lanBridgeActive_ && !lanHostAuthority_) {
         quint8 inputBits = currentLanInputBits();
         if (lanSessionManager_) {
@@ -2055,6 +2428,8 @@ void BattleWidget::advanceFrame() {
             updateEnemyProjectile(dt);
         }
         lastPredictedLocalLanInputBits_ = inputBits;
+        attackPressed_ = false;
+        healPressed_ = false;
 
         const Player *p = gameManager_->getPlayer();
         const Enemy *e = gameManager_->getCurrentEnemy();
@@ -2078,6 +2453,17 @@ void BattleWidget::advanceFrame() {
     
     // Let death animations play before leaving battle.
     if (!player->isAlive() || !enemy->isAlive()) {
+        if (gameManager_->isZombieMode() && zombieCityCleaned_) {
+            battleEndDelay_ -= dt;
+            if (battleEndDelay_ <= 0.0) {
+                battleActive_ = false;
+                emit battleFinished();
+            }
+            recordHighlightReplayFrame(dt);
+            update();
+            return;
+        }
+
         if (battleEndDelay_ <= 0.0) {
             battleEndDelay_ = 2.5; // Increased delay to 2.5 seconds to see the full death animation
             if (!player->isAlive() && playerAnimChar_) {
@@ -2090,6 +2476,47 @@ void BattleWidget::advanceFrame() {
 
         battleEndDelay_ -= dt;
         if (battleEndDelay_ <= 0.0) {
+            if (gameManager_->isZombieMode() && player->isAlive() && !enemy->isAlive()) {
+                const int clearedLevel = gameManager_->getCurrentLevel();
+                gameManager_->addScore(25 + gameManager_->getCurrentLevel() * 8);
+                if (gameManager_->advanceZombieWave()) {
+                    Enemy *nextZombie = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
+                    if (nextZombie) {
+                        if (clearedLevel == 1 && gameManager_->getCurrentLevel() == 2) {
+                            zombieLevelTransitionPending_ = true;
+                            battleActive_ = false;
+                            statusMessage_ = QStringLiteral("Level 1 cleared. Advanced infected are ahead.");
+                            statusDisplayTime_ = 2.5;
+                            pushHostCombatState(true);
+                            update();
+                            emit battleFinished();
+                            return;
+                        }
+
+                        battleEndDelay_ = 0.0;
+                        zombieSpawnDelay_ = 5.0;
+                        enemyProjectileActive_ = false;
+                        enemyProjectileExploding_ = false;
+                        enemyProjectileAnimTime_ = 0.0;
+                        enemyProjectileFrame_ = 0;
+                        enemyProjectileExplosionTime_ = 0.0;
+                        enemyHpDisplay_ = nextZombie->getMaxHealth() > 0
+                            ? static_cast<double>(nextZombie->getHealth()) / nextZombie->getMaxHealth()
+                            : 1.0;
+                        prepareZombieSpawn(false);
+                        statusMessage_ = gameManager_->getCurrentLevel() == 2
+                            ? QStringLiteral("Advanced infected are breaking through...")
+                            : QStringLiteral("Another infected is shambling into the street...");
+                        statusDisplayTime_ = 2.4;
+                        update();
+                        return;
+                    }
+                }
+
+                completeZombieOutbreak();
+                return;
+            }
+
             if (player->isAlive() && !enemy->isAlive() && gameManager_->advanceFinalGuardianWave()) {
                 Enemy *nextGuardian = const_cast<Enemy*>(gameManager_->getCurrentEnemy());
                 if (nextGuardian) {
@@ -2129,6 +2556,7 @@ void BattleWidget::advanceFrame() {
             emit battleFinished();
         }
         pushHostCombatState(false);
+        recordHighlightReplayFrame(dt);
         update();
         return;
     }
@@ -2156,6 +2584,25 @@ void BattleWidget::advanceFrame() {
     if (introLockTime_ > 0.0) {
         attackPressed_ = false;
         healPressed_ = false;
+        if (gameManager_->isZombieMode() && zombieIntroActive_) {
+            zombieIntroTime_ = qMax(0.0, zombieIntroTime_ - dt);
+            if (zombieIntroTime_ > 6.0) {
+                statusMessage_ = QStringLiteral("The city is full of zombies...");
+            } else if (zombieIntroTime_ > 2.2) {
+                statusMessage_ = QStringLiteral("Four infected split into the alleys.");
+            } else {
+                statusMessage_ = QStringLiteral("Level 1 begins. Clear the first street.");
+            }
+            statusDisplayTime_ = 1.0;
+            if (zombieIntroTime_ <= 0.0) {
+                zombieIntroActive_ = false;
+                zombieSpawnDelay_ = 2.2;
+                refreshArenaBackground();
+                prepareZombieSpawn(true);
+            }
+        } else if (gameManager_->isZombieMode()) {
+            updateZombieEntry(dt);
+        }
         if (playerAnimChar_) {
             playerAnimChar_->setAnimationState(AnimationState::IDLE);
             playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
@@ -2165,6 +2612,22 @@ void BattleWidget::advanceFrame() {
             enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
         }
         pushHostCombatState(false);
+        update();
+        return;
+    }
+
+    if (gameManager_->isZombieMode() && zombieSpawnDelay_ > 0.0) {
+        zombieSpawnDelay_ = qMax(0.0, zombieSpawnDelay_ - dt);
+        attackPressed_ = false;
+        healPressed_ = false;
+        updateZombieEntry(dt);
+        if (zombieSpawnDelay_ <= 0.0) {
+            statusMessage_ = QStringLiteral("Zombie released. Hold the street.");
+            statusDisplayTime_ = 1.5;
+            enemyCooldown_ = 0.6;
+        }
+        pushHostCombatState(false);
+        recordHighlightReplayFrame(dt);
         update();
         return;
     }
@@ -2226,6 +2689,7 @@ void BattleWidget::advanceFrame() {
     updateArcenProjectile(dt);
     updateEnemyProjectile(dt);
     pushHostCombatState(false);
+    recordHighlightReplayFrame(dt);
     update();
 }
 
@@ -2351,6 +2815,194 @@ void BattleWidget::refreshEnemyAiDecision(double dt, double distance) {
     enemyAiLastAttack_ = enemyAiDecision_.attackState;
 }
 
+void BattleWidget::resetZombieModeState() {
+    zombieSpawnDelay_ = 0.0;
+    zombieIntroTime_ = 0.0;
+    zombieIntroActive_ = false;
+    zombieEnteringFromLeft_ = false;
+    zombieCityCleaned_ = false;
+    zombieLevelTransitionPending_ = false;
+}
+
+void BattleWidget::prepareZombieSpawn(bool firstSpawn) {
+    if (!gameManager_ || !gameManager_->isZombieMode()) {
+        return;
+    }
+
+    zombieCityCleaned_ = false;
+    refreshArenaBackground();
+    Enemy *currentEnemy = gameManager_->getCurrentEnemy();
+    if (!currentEnemy) {
+        return;
+    }
+    loadEnemyAnimations(currentEnemy->getEnemyType());
+    loadBattleProfilePortraits();
+
+    zombieEnteringFromLeft_ = zombieEntryFromLeftForEnemy(currentEnemy->getEnemyType());
+    enemyX_ = zombieEnteringFromLeft_ ? ARENA_LEFT_X - 100.0 : double(width()) + 100.0;
+    enemyCooldown_ = (firstSpawn ? introLockTime_ : zombieSpawnDelay_) + 0.65;
+    enemyAiDecision_ = FighterAiDecision();
+    enemyAiDecisionTimer_ = 0.0;
+    enemyAiPlayerAttackMemory_ = 0.0;
+    enemyAiPlayerMissMemory_ = 0.0;
+    enemyAiPlayerHealMemory_ = 0.0;
+    enemyAiEnemyDamageMemory_ = 0.0;
+    const Enemy *enemy = gameManager_->getCurrentEnemy();
+    enemyAiLastEnemyHp_ = enemy ? enemy->getHealth() : 0;
+    enemyAiLastAttack_ = AnimationState::ATTACK1;
+    if (enemyAnimChar_) {
+        enemyAnimChar_->reset();
+        enemyAnimChar_->setAnimationState(AnimationState::RUN);
+        enemyAnimChar_->setFacingLeft(!zombieEnteringFromLeft_);
+    }
+    statusMessage_ = firstSpawn
+        ? QStringLiteral("The infected are entering the city...")
+        : QStringLiteral("Another infected breaks through the edge.");
+    statusDisplayTime_ = firstSpawn ? 3.4 : 2.0;
+}
+
+bool BattleWidget::zombieEntryFromLeftForEnemy(EnemyType type) const {
+    switch (type) {
+        case EnemyType::ZOMBIE_1:
+        case EnemyType::ZOMBIE_2:
+        case EnemyType::ADVANCED_ZOMBIE_1:
+        case EnemyType::ADVANCED_ZOMBIE_2:
+            return true;
+        case EnemyType::ZOMBIE_3:
+        case EnemyType::ZOMBIE_4:
+        case EnemyType::ADVANCED_ZOMBIE_3:
+            return false;
+        default:
+            return true;
+    }
+}
+
+void BattleWidget::updateZombieEntry(double dt) {
+    if (!gameManager_ || !gameManager_->isZombieMode()) {
+        return;
+    }
+
+    const double arenaLeft = ARENA_LEFT_X + 85.0;
+    const double arenaRight = qMax(arenaLeft + 260.0, double(width()) - ARENA_RIGHT_MARGIN - 90.0);
+    const double targetX = zombieEnteringFromLeft_ ? arenaLeft : arenaRight;
+    const double direction = targetX > enemyX_ ? 1.0 : -1.0;
+    const double step = 190.0 * dt;
+    if (std::abs(targetX - enemyX_) <= step) {
+        enemyX_ = targetX;
+    } else {
+        enemyX_ += direction * step;
+    }
+
+    if (enemyAnimChar_) {
+        enemyAnimChar_->setAnimationState(AnimationState::RUN);
+        enemyAnimChar_->setFacingLeft(!zombieEnteringFromLeft_);
+    }
+}
+
+void BattleWidget::completeZombieOutbreak() {
+    zombieCityCleaned_ = true;
+    battleEndDelay_ = 3.2;
+    refreshArenaBackground();
+    statusMessage_ = QStringLiteral("The city is cleaned from zombies.");
+    statusDisplayTime_ = 3.2;
+    if (playerAnimChar_) {
+        playerAnimChar_->setAnimationState(AnimationState::IDLE);
+    }
+    update();
+}
+
+PlayerType BattleWidget::selectedPlayerType() const {
+    return gameManager_ ? gameManager_->getSelectedPlayerType() : PlayerType::KNIGHT;
+}
+
+void BattleWidget::refreshCombinedMovementInput() {
+    movingLeft_ = keyboardMovingLeft_ || controllerMovingLeft_;
+    movingRight_ = keyboardMovingRight_ || controllerMovingRight_;
+}
+
+void BattleWidget::clearLocalInputState() {
+    keyboardMovingLeft_ = false;
+    keyboardMovingRight_ = false;
+    controllerMovingLeft_ = false;
+    controllerMovingRight_ = false;
+    movingLeft_ = false;
+    movingRight_ = false;
+    attackPressed_ = false;
+    healPressed_ = false;
+    controllerInput_.resetTransientState();
+}
+
+bool BattleWidget::queuePlayerAttack(AnimationState attackState, bool showQueuedStatus) {
+    PlayerAction action = PlayerAction::ATTACK1;
+    QString unavailableMessage = QStringLiteral("This character cannot use Attack 1");
+    QString queuedMessage;
+
+    if (attackState == AnimationState::ATTACK2) {
+        action = PlayerAction::ATTACK2;
+        unavailableMessage = QStringLiteral("This character has no Attack 2");
+        queuedMessage = QStringLiteral("Attack 2 queued");
+    } else if (attackState == AnimationState::ATTACK3) {
+        action = PlayerAction::ATTACK3;
+        unavailableMessage = QStringLiteral("This character has no Attack 3");
+        queuedMessage = QStringLiteral("Attack 3 queued");
+    }
+
+    if (!InputHandler::canPerformAction(selectedPlayerType(), action)) {
+        statusMessage_ = unavailableMessage;
+        statusDisplayTime_ = 1.2;
+        return false;
+    }
+
+    attackPressed_ = true;
+    queuedPlayerAttackState_ = attackState;
+    if (showQueuedStatus && !queuedMessage.isEmpty()) {
+        statusMessage_ = queuedMessage;
+        statusDisplayTime_ = 0.8;
+    }
+    return true;
+}
+
+void BattleWidget::updateControllerInput() {
+    controllerInput_.poll();
+    controllerMovingLeft_ = controllerInput_.moveLeft();
+    controllerMovingRight_ = controllerInput_.moveRight();
+    refreshCombinedMovementInput();
+
+    if (!controllerInput_.isAvailable()) {
+        return;
+    }
+
+    if (controllerInput_.wasPressed(ControllerButton::Pause)) {
+        emit pauseRequested();
+        return;
+    }
+
+    if (!battleActive_ || pausePressed_) {
+        return;
+    }
+
+    if (controllerInput_.wasPressed(ControllerButton::Attack1)) {
+        queuePlayerAttack(AnimationState::ATTACK1, false);
+    } else if (controllerInput_.wasPressed(ControllerButton::Attack2)) {
+        queuePlayerAttack(AnimationState::ATTACK2, true);
+    } else if (controllerInput_.wasPressed(ControllerButton::Attack3)) {
+        queuePlayerAttack(AnimationState::ATTACK3, true);
+    }
+
+    if (controllerInput_.wasPressed(ControllerButton::Jump)) {
+        if (InputHandler::canPerformAction(selectedPlayerType(), PlayerAction::JUMP)) {
+            statusMessage_ = "Jump action triggered";
+            statusDisplayTime_ = 0.8;
+        } else {
+            statusMessage_ = "This character cannot jump";
+            statusDisplayTime_ = 1.2;
+        }
+    }
+
+    if (controllerInput_.wasPressed(ControllerButton::Heal)) {
+        healPressed_ = true;
+    }
+}
 
 void BattleWidget::updatePlayerMovement(double dt) {
     double moveAmount = MOVE_SPEED * dt;
@@ -2566,6 +3218,7 @@ void BattleWidget::tryPlayerAttack(double dt) {
 
         if (highlightAccepted) {
             captureHighlightFrame(true);
+            beginHighlightClipCapture(captureHighlightReplayFrame());
         }
         
         if (!enemy->isAlive()) {
@@ -3106,6 +3759,55 @@ void BattleWidget::loadEnemyAnimations(EnemyType type) {
             idleFrames = 8;
             break;
 
+        case EnemyType::ZOMBIE_1:
+        case EnemyType::ZOMBIE_2:
+        case EnemyType::ZOMBIE_3:
+        case EnemyType::ZOMBIE_4: {
+            const int zombieIndex = type == EnemyType::ZOMBIE_1 ? 1
+                                  : type == EnemyType::ZOMBIE_2 ? 2
+                                  : type == EnemyType::ZOMBIE_3 ? 3
+                                                                : 4;
+            basePath = resolveAssetPath(QString("assets/beasts/zombies/Zombie_%1").arg(zombieIndex));
+            const int idleCount = zombieIndex == 4 ? 7 : 6;
+            const int walkCount = zombieIndex == 4 ? 12 : 10;
+            const int attackCount = zombieIndex == 3 ? 4 : (zombieIndex == 4 ? 10 : 5);
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, idleCount, basePath + "/Idle.png", true, 145);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, walkCount, basePath + "/Walk.png", true, 90);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, attackCount, basePath + "/Attack.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, attackCount, basePath + "/Attack.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, attackCount, basePath + "/Attack.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 5, basePath + "/Dead.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, 4, basePath + "/Hurt.png", false, 90);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = idleCount;
+            break;
+        }
+
+        case EnemyType::ADVANCED_ZOMBIE_1:
+        case EnemyType::ADVANCED_ZOMBIE_2:
+        case EnemyType::ADVANCED_ZOMBIE_3: {
+            const int zombieIndex = type == EnemyType::ADVANCED_ZOMBIE_1 ? 1
+                                  : type == EnemyType::ADVANCED_ZOMBIE_2 ? 2
+                                                                         : 3;
+            basePath = resolveAssetPath(QString("assets/beasts/zombies/Advanced_Zombie_%1").arg(zombieIndex));
+            const int idleCount = zombieIndex == 1 ? 5 : (zombieIndex == 2 ? 9 : 8);
+            const int runCount = zombieIndex == 1 ? 7 : 8;
+            const int hurtCount = zombieIndex == 2 ? 5 : 3;
+            const int attack1Count = zombieIndex == 3 ? 5 : 4;
+            const int attack2Count = 4;
+            const int attack3Count = zombieIndex == 3 ? 5 : 4;
+            enemyAnimManager_->loadAnimation(AnimationState::IDLE, idleCount, basePath + "/Idle.png", true, 145);
+            enemyAnimManager_->loadAnimation(AnimationState::RUN, runCount, basePath + "/Run.png", true, 82);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK1, attack1Count, basePath + "/Attack_1.png", false, 56);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK2, attack2Count, basePath + "/Attack_2.png", false, 62);
+            enemyAnimManager_->loadAnimation(AnimationState::ATTACK3, attack3Count, basePath + "/Attack_3.png", false, 58);
+            enemyAnimManager_->loadAnimation(AnimationState::DEATH, 5, basePath + "/Dead.png", false, 120);
+            enemyAnimManager_->loadAnimation(AnimationState::HURT, hurtCount, basePath + "/Hurt.png", false, 90);
+            idlePath = basePath + "/Idle.png";
+            idleFrames = idleCount;
+            break;
+        }
+
         case EnemyType::BLACK_WEREWOLF:
             basePath = resolveAssetPath("assets/beasts/werewolf/Black_Werewolf");
             enemyAnimManager_->loadAnimation(AnimationState::IDLE, 8, basePath + "/Idle.png", true, 120);
@@ -3335,6 +4037,7 @@ void BattleWidget::updateArcenProjectile(double dt) {
 
         if (highlightAccepted) {
             captureHighlightFrame(true);
+            beginHighlightClipCapture(captureHighlightReplayFrame());
         }
 
         if (!enemy->isAlive()) {
@@ -3870,6 +4573,15 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
                    enemyType == EnemyType::RED_WEREWOLF ||
                    enemyType == EnemyType::WHITE_WEREWOLF) {
             desiredVisibleHeight *= 0.9;
+        } else if (enemyType == EnemyType::ZOMBIE_1 ||
+                   enemyType == EnemyType::ZOMBIE_2 ||
+                   enemyType == EnemyType::ZOMBIE_3 ||
+                   enemyType == EnemyType::ZOMBIE_4) {
+            desiredVisibleHeight *= 0.88;
+        } else if (enemyType == EnemyType::ADVANCED_ZOMBIE_1 ||
+                   enemyType == EnemyType::ADVANCED_ZOMBIE_2 ||
+                   enemyType == EnemyType::ADVANCED_ZOMBIE_3) {
+            desiredVisibleHeight *= 0.96;
         }
 
         flipSprite = enemyAnimChar_->isFacingLeft();

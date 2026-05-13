@@ -30,7 +30,14 @@ enum class EnemyType {
     EVIL_WIZARD,
     BLACK_WEREWOLF,
     RED_WEREWOLF,
-    WHITE_WEREWOLF
+    WHITE_WEREWOLF,
+    ZOMBIE_1,
+    ZOMBIE_2,
+    ZOMBIE_3,
+    ZOMBIE_4,
+    ADVANCED_ZOMBIE_1,
+    ADVANCED_ZOMBIE_2,
+    ADVANCED_ZOMBIE_3
 };
 
 enum class DifficultyLevel {

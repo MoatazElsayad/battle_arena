@@ -221,6 +221,12 @@ void WebsiteSyncClient::uploadBattleHighlight(const WebsiteHighlightUpload& payl
     addTextPart(multiPart, "enemyHpAfter", QString::number(payload.enemyHpAfter));
     addTextPart(multiPart, "levelIndex", QString::number(payload.levelIndex));
     addTextPart(multiPart, "levelName", payload.levelName.trimmed());
+    addTextPart(multiPart, "clipKind", payload.clipKind.trimmed());
+    addTextPart(multiPart, "clipFrameCount", QString::number(payload.clipFrameCount));
+    addTextPart(multiPart, "clipFps", QString::number(payload.clipFps));
+    addTextPart(multiPart, "clipFrameWidth", QString::number(payload.clipFrameWidth));
+    addTextPart(multiPart, "clipFrameHeight", QString::number(payload.clipFrameHeight));
+    addTextPart(multiPart, "clipDurationSeconds", QString::number(payload.clipDurationSeconds, 'f', 3));
     addTextPart(multiPart,
                 "capturedAt",
                 (payload.capturedAtUtc.isValid() ? payload.capturedAtUtc : QDateTime::currentDateTimeUtc()).toString(Qt::ISODate));
@@ -239,6 +245,26 @@ void WebsiteSyncClient::uploadBattleHighlight(const WebsiteHighlightUpload& payl
     imageBuffer->open(QIODevice::ReadOnly);
     imagePart.setBodyDevice(imageBuffer);
     multiPart->append(imagePart);
+
+    if (!payload.clipSheetBytes.isEmpty()) {
+        QHttpPart clipPart;
+        clipPart.setHeader(QNetworkRequest::ContentTypeHeader,
+                           payload.clipSheetMimeType.trimmed().isEmpty()
+                               ? QStringLiteral("image/jpeg")
+                               : payload.clipSheetMimeType.trimmed());
+        clipPart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                           QStringLiteral("form-data; name=\"clipSheet\"; filename=\"battle-highlight-replay.jpg\""));
+        auto* clipBuffer = new QBuffer(multiPart);
+        clipBuffer->setData(payload.clipSheetBytes);
+        clipBuffer->open(QIODevice::ReadOnly);
+        clipPart.setBodyDevice(clipBuffer);
+        multiPart->append(clipPart);
+        qInfo() << "WebsiteSyncClient: uploading highlight replay clip"
+                << payload.clipSheetBytes.size()
+                << payload.clipSheetMimeType;
+    } else {
+        qInfo() << "WebsiteSyncClient: highlight has no replay clip; uploading poster only";
+    }
 
     QNetworkRequest request(endpoint);
     if (!apiKey_.trimmed().isEmpty()) {

@@ -77,6 +77,19 @@ FighterAiProfile fighterAiProfileFor(EnemyType type) {
             return {FighterAiPersonality::Berserker, 7, 0, 3, false,
                     0.95, 0.28, 0.34, 0.0, 0.84, 0.82, 0.20, 0.11,
                     66.0, 120.0, 1.24};
+        case EnemyType::ZOMBIE_1:
+        case EnemyType::ZOMBIE_2:
+        case EnemyType::ZOMBIE_3:
+        case EnemyType::ZOMBIE_4:
+            return {FighterAiPersonality::Berserker, 2, 0, 1, false,
+                    0.78, 0.20, 0.22, 0.0, 0.66, 0.48, 0.14, 0.18,
+                    58.0, 112.0, 0.86};
+        case EnemyType::ADVANCED_ZOMBIE_1:
+        case EnemyType::ADVANCED_ZOMBIE_2:
+        case EnemyType::ADVANCED_ZOMBIE_3:
+            return {FighterAiPersonality::Berserker, 4, 0, 3, false,
+                    0.84, 0.26, 0.34, 0.0, 0.74, 0.62, 0.22, 0.13,
+                    62.0, 118.0, 1.06};
     }
 
     return {};

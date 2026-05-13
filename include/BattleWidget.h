@@ -6,9 +6,12 @@
 #include <QElapsedTimer>
 #include <QPixmap>
 #include <QColor>
+#include <QImage>
 #include <optional>
+#include <QVector>
 #include "ChronicleAiTypes.h"
 #include "CombatHighlightTracker.h"
+#include "ControllerInputManager.h"
 #include "Enums.h"
 #include "FighterAiBrain.h"
 #include "NetTypes.h"
@@ -44,6 +47,7 @@ public:
     bool isPaused() const;
     ChronicleBattleReport levelBattleReport() const;
     std::optional<CombatHighlightSnapshot> levelBattleHighlight() const;
+    void finalizeHighlightClip();
 
 signals:
     void battleFinished();
@@ -85,6 +89,16 @@ private:
     FighterAiContext buildEnemyAiContext(double distance) const;
     void updateEnemyAiMemory(double dt);
     void refreshEnemyAiDecision(double dt, double distance);
+    void resetZombieModeState();
+    void prepareZombieSpawn(bool firstSpawn);
+    void updateZombieEntry(double dt);
+    void completeZombieOutbreak();
+    bool zombieEntryFromLeftForEnemy(EnemyType type) const;
+    void refreshCombinedMovementInput();
+    void clearLocalInputState();
+    void updateControllerInput();
+    bool queuePlayerAttack(AnimationState attackState, bool showQueuedStatus);
+    PlayerType selectedPlayerType() const;
     void updatePlayerMovement(double dt);
     void updateEnemyAI(double dt);
     void tryPlayerAttack(double dt);
@@ -95,6 +109,8 @@ private:
     void drawStatus(QPainter &painter);
     void drawHUD(QPainter &painter);
     void drawCountdownOverlay(QPainter &painter);
+    void drawZombieIntroScene(QPainter &painter);
+    void drawZombieCityClearedOverlay(QPainter &painter);
     void drawLevelTransitionPortal(QPainter &painter);
     void drawFinalKingStageScene(QPainter &painter);
     void drawFinalRescueTransition(QPainter &painter);
@@ -112,6 +128,11 @@ private:
                            bool includeTransientOverlays,
                            bool focusHighlightCombatants = false);
     void captureHighlightFrame(bool focusHighlightCombatants = false);
+    QImage captureHighlightReplayFrame() const;
+    QByteArray buildHighlightClipSheet(QString* outMimeType) const;
+    void resetHighlightReplay();
+    void recordHighlightReplayFrame(double dt);
+    void beginHighlightClipCapture(const QImage& impactFrame);
     CombatHighlightCandidate buildHighlightCandidate(HighlightAttackType attackType,
                                                      int damage,
                                                      bool wasProjectile,
@@ -146,9 +167,14 @@ private:
     // Input state
     bool movingLeft_;
     bool movingRight_;
+    bool keyboardMovingLeft_;
+    bool keyboardMovingRight_;
+    bool controllerMovingLeft_;
+    bool controllerMovingRight_;
     bool attackPressed_;
     bool healPressed_;
     bool pausePressed_;
+    ControllerInputManager controllerInput_;
 
     // Game state
     bool battleActive_;
@@ -219,7 +245,17 @@ private:
     double enemyAiEnemyDamageMemory_;
     int enemyAiLastEnemyHp_;
     AnimationState enemyAiLastAttack_;
+    double zombieSpawnDelay_;
+    double zombieIntroTime_;
+    bool zombieIntroActive_;
+    bool zombieEnteringFromLeft_;
+    bool zombieCityCleaned_;
+    bool zombieLevelTransitionPending_;
     CombatHighlightTracker highlightTracker_;
+    QVector<QImage> rollingHighlightFrames_;
+    QVector<QImage> activeHighlightClipFrames_;
+    double highlightFrameAccumulator_;
+    int highlightPostFramesRemaining_;
 
     static constexpr double PLAYER_START_X = 150.0;
     static constexpr double ENEMY_START_X = 850.0;
@@ -236,6 +272,13 @@ private:
     static constexpr double ENEMY_ATTACK_COOLDOWN = 1.2;
     static constexpr double BATTLE_COUNTDOWN_DURATION = 3.25;
     static constexpr double LEVEL_TRANSITION_DURATION = 2.9;
+    static constexpr int HIGHLIGHT_CLIP_FPS = 10;
+    static constexpr int HIGHLIGHT_CLIP_FRAME_COUNT = 40;
+    static constexpr int HIGHLIGHT_CLIP_PRE_FRAMES = 30;
+    static constexpr int HIGHLIGHT_CLIP_COLUMNS = 5;
+    static constexpr int HIGHLIGHT_CLIP_FRAME_WIDTH = 480;
+    static constexpr int HIGHLIGHT_CLIP_FRAME_HEIGHT = 270;
+    static constexpr double HIGHLIGHT_CLIP_DURATION_SECONDS = 4.0;
 };
 
 #endif // BATTLEWIDGET_H

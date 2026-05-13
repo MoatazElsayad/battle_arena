@@ -57,6 +57,7 @@ const QString kPlayableLobbyMode = QStringLiteral("Save the Kings");
 const QString kExhibitionLobbyMode = QStringLiteral("1v1 Exhibition");
 const QString kZombieLobbyMode = QStringLiteral("Zombie");
 const QString kLanLobbyMode = QStringLiteral("LAN Battle");
+constexpr int kZombieUnlockTier = 5; // Elite Knight
 const QStringList kDuelArenaChoices = {
     QStringLiteral("Colosseum"),
     QStringLiteral("Ember Court"),
@@ -1971,7 +1972,7 @@ void ProfileLobbyWidget::setupModeCarousel(QBoxLayout* rootLayout) {
     const QList<GameMode> modes = {
         {kExhibitionLobbyMode, shieldIconPath, "Classic exhibition duels with dedicated rival setup, manual or random matchups, and selectable arena themes.", false},
         {kPlayableLobbyMode, shieldIconPath, "The current playable campaign build: defend the ruler through enemy stages.", true},
-        {kZombieLobbyMode, shieldIconPath, "Upcoming survival run against zombie waves and pressure battles.", false},
+        {kZombieLobbyMode, shieldIconPath, "Survive two infected waves, push through advanced zombies, and reclaim the city.", false},
         {kLanLobbyMode, shieldIconPath, "Host or join a nearby LAN challenger. Session sync, ready states, and live duel handoff are now wired.", false}
     };
 
@@ -2421,9 +2422,17 @@ void ProfileLobbyWidget::refreshDuelSetupControls() {
 }
 
 bool ProfileLobbyWidget::isPlayableMode(const QString& modeName) const {
+    if (modeName.compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0) {
+        return isZombieModeUnlocked();
+    }
     return modeName.compare(kPlayableLobbyMode, Qt::CaseInsensitive) == 0
         || modeName.compare(kExhibitionLobbyMode, Qt::CaseInsensitive) == 0
         || modeName.compare(kLanLobbyMode, Qt::CaseInsensitive) == 0;
+}
+
+bool ProfileLobbyWidget::isZombieModeUnlocked() const {
+    const QString currentRank = canonicalRankName(userProfile_.badge, userProfile_.score);
+    return rankTierForName(currentRank) >= kZombieUnlockTier;
 }
 
 void ProfileLobbyWidget::refreshProfileUi() {
@@ -2629,6 +2638,8 @@ void ProfileLobbyWidget::refreshLobbyContext() {
                     ? "Choose a mode and enter the arena."
                     : QString("%1 selected. %2").arg(modeShortTagFor(selectedModeName_), description));
             }
+        } else if (selectedModeName_.compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0) {
+            previewHintLabel_->setText(QStringLiteral("Zombie mode unlocks at Elite Knight. Clear the city when your rank is ready."));
         } else {
             previewHintLabel_->setText(QString("%1 is coming soon. Save the Kings is ready now.")
                                            .arg(selectedModeName_));
@@ -2674,6 +2685,8 @@ void ProfileLobbyWidget::refreshLobbyContext() {
                     hint = QString("%1 enters next. %2").arg(selectedCharacter_.name, hint);
                 }
             }
+        } else if (selectedModeName_.compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0) {
+            hint = QStringLiteral("Zombie unlocks at Elite Knight. Reach 1400 total score to open the outbreak run.");
         } else {
             hint = QString("%1 is coming soon. Select Save the Kings to enter the current combat experience.")
                        .arg(selectedModeName_);
@@ -2688,6 +2701,8 @@ void ProfileLobbyWidget::refreshLobbyContext() {
             : Qt::ForbiddenCursor);
         if (lockedCharacter) {
             enterArenaButton_->setText(QStringLiteral("LOCKED"));
+        } else if (selectedModeName_.compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0 && !isZombieModeUnlocked()) {
+            enterArenaButton_->setText(QStringLiteral("UNLOCKS AT ELITE KNIGHT"));
         } else if (!isPlayableMode(selectedModeName_)) {
             enterArenaButton_->setText("COMING SOON");
         } else if (selectedModeName_.compare(kExhibitionLobbyMode, Qt::CaseInsensitive) == 0) {
@@ -2819,9 +2834,17 @@ void ProfileLobbyWidget::refreshModeSelectionUi() {
 
         if (auto* statusLabel = card->findChild<QLabel*>("modeStatusLabel")) {
             if (selected) {
-                statusLabel->setText(isPlayableMode(it.key()) ? "Selected" : "Coming soon");
+                if (it.key().compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0 && !isZombieModeUnlocked()) {
+                    statusLabel->setText(QStringLiteral("Unlocks at Elite Knight"));
+                } else {
+                    statusLabel->setText(isPlayableMode(it.key()) ? "Selected" : "Coming soon");
+                }
             } else {
-                statusLabel->setText(isPlayableMode(it.key()) ? "Select mode" : "Coming soon");
+                if (it.key().compare(kZombieLobbyMode, Qt::CaseInsensitive) == 0 && !isZombieModeUnlocked()) {
+                    statusLabel->setText(QStringLiteral("Unlocks at Elite Knight"));
+                } else {
+                    statusLabel->setText(isPlayableMode(it.key()) ? "Select mode" : "Coming soon");
+                }
             }
             statusLabel->setStyleSheet(selected
                 ? "color:#FFE6A6; font:700 10px 'Segoe UI'; letter-spacing:0.7px;"

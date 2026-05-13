@@ -317,6 +317,13 @@ QString enemyTypeApiKey(EnemyType type) {
         case EnemyType::BLACK_WEREWOLF: return QStringLiteral("BLACK_WEREWOLF");
         case EnemyType::RED_WEREWOLF: return QStringLiteral("RED_WEREWOLF");
         case EnemyType::WHITE_WEREWOLF: return QStringLiteral("WHITE_WEREWOLF");
+        case EnemyType::ZOMBIE_1: return QStringLiteral("ZOMBIE_1");
+        case EnemyType::ZOMBIE_2: return QStringLiteral("ZOMBIE_2");
+        case EnemyType::ZOMBIE_3: return QStringLiteral("ZOMBIE_3");
+        case EnemyType::ZOMBIE_4: return QStringLiteral("ZOMBIE_4");
+        case EnemyType::ADVANCED_ZOMBIE_1: return QStringLiteral("ADVANCED_ZOMBIE_1");
+        case EnemyType::ADVANCED_ZOMBIE_2: return QStringLiteral("ADVANCED_ZOMBIE_2");
+        case EnemyType::ADVANCED_ZOMBIE_3: return QStringLiteral("ADVANCED_ZOMBIE_3");
     }
 
     return QStringLiteral("UNKNOWN");
@@ -927,6 +934,23 @@ QWidget* MainWindow::createSetupPage() {
             return;
         }
 
+        if (modeName.compare(QStringLiteral("Zombie"), Qt::CaseInsensitive) == 0) {
+            const PlayerProgression stats = databaseManager_
+                ? databaseManager_->loadProgressionForUser(currentLobbyUsername_)
+                : PlayerProgression();
+            if (rankTierForName(QString::fromStdString(GameManager::calculateRankFromScore(stats.totalScore))) < 5) {
+                QMessageBox::information(this,
+                                         "Zombie Locked",
+                                         "Zombie mode unlocks at Elite Knight rank.\n\nReach 1400 total score to clean the city.");
+                if (soundManager_) {
+                    soundManager_->playUIError();
+                }
+                return;
+            }
+            startZombieMode();
+            return;
+        }
+
         if (modeName.compare(QStringLiteral("LAN Battle"), Qt::CaseInsensitive) == 0
             || modeName.compare(QStringLiteral("Arena Link"), Qt::CaseInsensitive) == 0) {
             showLanArenaPage();
@@ -1518,6 +1542,34 @@ void MainWindow::startDuelMode() {
     }
 }
 
+void MainWindow::startZombieMode() {
+    QString playerName = currentLobbyUsername_.trimmed();
+    if (profileLobbyWidget_) {
+        playerName = profileLobbyWidget_->userProfile().username.trimmed();
+    }
+    if (playerName.isEmpty()) {
+        playerName = QStringLiteral("Player_01");
+    }
+
+    if (!isPlayerTypeUnlocked(selectedPlayerType_)) {
+        selectLobbyCharacter(unlockedPlayerTypesForCurrentRank().front());
+    }
+
+    gameManager_->startZombieMode(playerName.toStdString(), selectedPlayerType_);
+    if (soundManager_) {
+        soundManager_->playUIConfirm();
+        soundManager_->playBattleMusic();
+    }
+
+    if (pausePage_) {
+        pausePage_->hide();
+    }
+    stack_->setCurrentWidget(battlePage_);
+    if (gamePage_) {
+        gamePage_->startBattle();
+    }
+}
+
 void MainWindow::handleBattleFinished() {
     if (!gamePage_ || !databaseManager_ || !gameManager_) {
         return;
@@ -1789,9 +1841,11 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
         payload.totalMatches = progression.totalMatches;
         payload.rankLabel = QString::fromStdString(GameManager::calculateRankFromScore(progression.totalScore));
     }
-    payload.mode = !isDuelMatch
-        ? QStringLiteral("save_the_king")
-        : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel"));
+    payload.mode = gameManager_ && gameManager_->isZombieMode()
+        ? QStringLiteral("zombie")
+        : (!isDuelMatch
+               ? QStringLiteral("save_the_king")
+               : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel")));
     payload.levelIndex = report.completedLevel > 0 ? report.completedLevel : (gameManager_ ? gameManager_->getCurrentLevel() : 0);
     payload.levelName = report.defeatedEnemyName.trimmed();
     payload.enemyType = QString();
@@ -1819,6 +1873,12 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
         if (gameManager_ && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE) {
             payload.enemyType = playerTypeApiKey(gameManager_->getLanOpponentPlayerType());
         }
+    } else if (gameManager_ && gameManager_->isZombieMode()) {
+        payload.levelName = QStringLiteral("Zombie Outbreak");
+        payload.enemyType = report.defeatedEnemyType.trimmed();
+        if (payload.enemyName.isEmpty()) {
+            payload.enemyName = QStringLiteral("Zombie horde");
+        }
     } else if (gameManager_ && gameManager_->getCurrentEnemy()) {
         const Enemy* currentEnemy = gameManager_->getCurrentEnemy();
         payload.enemyType = enemyTypeApiKey(currentEnemy->getEnemyType());
@@ -1828,7 +1888,9 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
     }
 
     if (payload.levelName.isEmpty()) {
-        payload.levelName = isDuelMatch ? QStringLiteral("1v1 Exhibition") : QStringLiteral("Save the King");
+        payload.levelName = gameManager_ && gameManager_->isZombieMode()
+            ? QStringLiteral("Zombie Outbreak")
+            : (isDuelMatch ? QStringLiteral("1v1 Exhibition") : QStringLiteral("Save the King"));
     }
 
     websiteSyncClient_->uploadBattleResult(payload);
@@ -1836,6 +1898,10 @@ void MainWindow::uploadBattleResult(const ChronicleBattleReport& report, bool is
 
 void MainWindow::uploadBattleHighlight(const ChronicleBattleReport& report, bool isDuelMatch) const {
     if (!websiteSyncClient_ || !websiteSyncClient_->isConfigured() || !gamePage_ || (gameManager_ && gameManager_->isLanDuel())) {
+        return;
+    }
+
+    if (!report.victory) {
         return;
     }
 
@@ -1857,9 +1923,11 @@ void MainWindow::uploadBattleHighlight(const ChronicleBattleReport& report, bool
 
     WebsiteHighlightUpload payload;
     payload.username = username;
-    payload.mode = !isDuelMatch
-        ? QStringLiteral("save_the_king")
-        : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel"));
+    payload.mode = gameManager_ && gameManager_->isZombieMode()
+        ? QStringLiteral("zombie")
+        : (!isDuelMatch
+               ? QStringLiteral("save_the_king")
+               : (gameManager_ && gameManager_->isLanDuel() ? QStringLiteral("lan_duel") : QStringLiteral("exhibition_duel")));
     payload.characterType = playerTypeApiKey(selectedPlayerType_);
     payload.characterName = QString::fromStdString(InputHandler::playerTypeToDisplayName(selectedPlayerType_));
     payload.enemyType = report.defeatedEnemyType.trimmed();
@@ -1882,6 +1950,14 @@ void MainWindow::uploadBattleHighlight(const ChronicleBattleReport& report, bool
     payload.capturedAtUtc = highlight->capturedAtUtc;
     payload.imageBytes = highlight->imageBytes;
     payload.imageMimeType = highlight->imageMimeType;
+    payload.clipSheetBytes = highlight->clipSheetBytes;
+    payload.clipSheetMimeType = highlight->clipSheetMimeType;
+    payload.clipKind = highlight->clipKind;
+    payload.clipFrameCount = highlight->clipFrameCount;
+    payload.clipFps = highlight->clipFps;
+    payload.clipFrameWidth = highlight->clipFrameWidth;
+    payload.clipFrameHeight = highlight->clipFrameHeight;
+    payload.clipDurationSeconds = highlight->clipDurationSeconds;
 
     if (isDuelMatch) {
         payload.levelIndex = 1;
@@ -1891,6 +1967,11 @@ void MainWindow::uploadBattleHighlight(const ChronicleBattleReport& report, bool
             if (payload.enemyName.isEmpty()) {
                 payload.enemyName = QString::fromStdString(InputHandler::playerTypeToDisplayName(gameManager_->getLanOpponentPlayerType()));
             }
+        }
+    } else if (gameManager_ && gameManager_->isZombieMode()) {
+        payload.levelName = QStringLiteral("Zombie Outbreak");
+        if (payload.enemyName.isEmpty()) {
+            payload.enemyName = QStringLiteral("Zombie horde");
         }
     } else if (payload.levelName.isEmpty()) {
         payload.levelName = QStringLiteral("Save the King");
@@ -1912,13 +1993,15 @@ PlayerProgression MainWindow::applyBattleProgression(const QString& username,
         : databaseManager_->loadProgressionForUser(username);
     const QString previousRank = QString::fromStdString(GameManager::calculateRankFromScore(stats.totalScore));
 
-    const bool fullClear = !isDuelMatch && report.victory && report.campaignComplete;
+    const RunMode mode = gameManager_ && gameManager_->isZombieMode()
+        ? RunMode::ZOMBIE
+        : (isDuelMatch ? RunMode::DUEL : RunMode::CAMPAIGN);
+    const bool fullClear = mode != RunMode::DUEL && report.victory && report.campaignComplete;
     const int stagesCleared = isDuelMatch
         ? 1
         : (report.victory
                ? qMax(1, report.completedLevel)
                : qMax(0, report.completedLevel - 1));
-    const RunMode mode = isDuelMatch ? RunMode::DUEL : RunMode::CAMPAIGN;
     const int reward = GameManager::calculateRewardForMatch(mode, report.victory, stagesCleared, fullClear);
 
     stats.totalScore += reward;

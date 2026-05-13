@@ -130,6 +130,7 @@ private:
     void updatePreviewScale();
     void updateModeCardHover(QWidget* card, bool hovered);
     bool isPlayableMode(const QString& modeName) const;
+    bool isZombieModeUnlocked() const;
     QString modeAccentFor(const QString& modeName) const;
     QString modeShortTagFor(const QString& modeName) const;
     QString modeDescriptionFor(const QString& modeName) const;

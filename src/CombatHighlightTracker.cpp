@@ -97,6 +97,28 @@ void CombatHighlightTracker::completeCapture(const QByteArray& imageBytes,
     capturePending_ = false;
 }
 
+void CombatHighlightTracker::completeClip(const QByteArray& clipSheetBytes,
+                                          const QString& clipSheetMimeType,
+                                          const QString& clipKind,
+                                          int clipFrameCount,
+                                          int clipFps,
+                                          int clipFrameWidth,
+                                          int clipFrameHeight,
+                                          double clipDurationSeconds) {
+    if (!bestSnapshot_.has_value() || clipSheetBytes.isEmpty()) {
+        return;
+    }
+
+    bestSnapshot_->clipSheetBytes = clipSheetBytes;
+    bestSnapshot_->clipSheetMimeType = clipSheetMimeType.trimmed();
+    bestSnapshot_->clipKind = clipKind.trimmed();
+    bestSnapshot_->clipFrameCount = qMax(0, clipFrameCount);
+    bestSnapshot_->clipFps = qMax(0, clipFps);
+    bestSnapshot_->clipFrameWidth = qMax(0, clipFrameWidth);
+    bestSnapshot_->clipFrameHeight = qMax(0, clipFrameHeight);
+    bestSnapshot_->clipDurationSeconds = qMax(0.0, clipDurationSeconds);
+}
+
 std::optional<CombatHighlightSnapshot> CombatHighlightTracker::snapshot() const {
     if (!bestSnapshot_.has_value() || bestSnapshot_->imageBytes.isEmpty()) {
         return std::nullopt;

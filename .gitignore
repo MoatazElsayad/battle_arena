@@ -23,4 +23,5 @@ Makefile
 # Other
 build-win-mingw/
 build-win/
+build-windows/
 qt-online-installer.exe

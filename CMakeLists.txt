@@ -10,6 +10,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 COMPONENTS Widgets Multimedia Network REQUIRED)
+find_package(SDL2 QUIET)
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
@@ -20,6 +21,7 @@ add_executable(${PROJECT_NAME}
     src/ChronicleAiAdvisor.cpp
     src/ChronicleOpenRouterClient.cpp
     src/CombatHighlightTracker.cpp
+    src/ControllerInputManager.cpp
     src/DatabaseManager.cpp
     src/Enemy.cpp
     src/ExhibitionSetupPage.cpp
@@ -53,6 +55,7 @@ add_executable(${PROJECT_NAME}
     include/ChronicleOpenRouterClient.h
     include/CombatHighlightTracker.h
     include/CombatHighlightTypes.h
+    include/ControllerInputManager.h
     include/DatabaseManager.h
     include/Enemy.h
     include/Enums.h
@@ -98,3 +101,15 @@ target_link_libraries(${PROJECT_NAME}
         Qt6::Multimedia
         Qt6::Network
 )
+
+if(SDL2_FOUND)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE GLADIATORS_HAS_SDL2=1)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(${PROJECT_NAME} PRIVATE SDL2::SDL2)
+    elseif(TARGET SDL2::SDL2-static)
+        target_link_libraries(${PROJECT_NAME} PRIVATE SDL2::SDL2-static)
+    else()
+        target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${SDL2_LIBRARIES})
+    endif()
+endif()
