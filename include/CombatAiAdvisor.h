@@ -8,6 +8,7 @@ Class CombatAiAdvisor : Public QObject
 
 
   Public:
+    
     explicit CombatAiAdvisor(QObject *parent = nullptr);
     void requestRecommendation(const CombatSnapshot& snapshot);
 

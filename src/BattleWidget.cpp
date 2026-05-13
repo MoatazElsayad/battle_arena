@@ -22,18 +22,250 @@
 #include <QImage>
 #include <CombatAiAdvisor.h>
 
-BattleWidget::BattleWidget(QWidget *parent)
+BattleWidget::BattleWidget()
 {
     combatAiAdvisor_ = new CombatAiAdvisor(this);
-    connect(combatAiAdvisor_, &CombatAiAdvisor::recommendationReady,
-        this, [this](const AiRecommendation& recommendation) {
-    activeAiRecommendation_ = recommendation;
-    hasActiveAiRecommendation_ = true;
-    aiRecommendationTimeLeft_ = recommendation.durationMs / 1000.0;
+
+    hasActiveAiRecommendation_ = false;
     aiRecommendationPending_ = false;
+
     aiRecommendationRequestCooldown_ = 5.0;
+    aiRecommendationTimeLeft_ = 0.0;
+
+    connect(
+        combatAiAdvisor_,
+        &CombatAiAdvisor::recommendationReady,
+        this,
+        [this](const AiRecommendation& recommendation)
+        {
+            activeAiRecommendation_ = recommendation;
+
+            hasActiveAiRecommendation_ = true;
+
+            aiRecommendationTimeLeft_ =
+                recommendation.durationMs / 1000.0;
+
+            aiRecommendationPending_ = false;
+
+            aiRecommendationRequestCooldown_ = 5.0;
+        }
+    );
 }
 
+
+void BattleWidget::startBattle()
+{
+ hasActiveAiRecommendation_ = false;
+aiRecommendationPending_ = false;
+aiRecommendationTimeLeft_ = 0.0;
+aiRecommendationRequestCooldown_ = 1.0;
+}
+
+
+void BattleWidget::advanceFrame(double dt)
+{
+    aiRecommendationTimeLeft_ -= dt;
+    aiRecommendationRequestCooldown_ -= dt;
+
+    if (aiRecommendationTimeLeft_ <= 0.0)
+    {
+        hasActiveAiRecommendation_ = false;
+    }
+
+    if (!aiRecommendationPending_
+        && !isLanMode_
+        && introFinished_
+        && player->isAlive()
+        && enemy->isAlive()
+        && aiRecommendationRequestCooldown_ <= 0.0)
+    {
+        CombatSnapshot snapshot = buildCombatSnapshot();
+        combatAiAdvisor_->requestRecommendation(snapshot);
+
+        aiRecommendationPending_ = true;
+        aiRecommendationRequestCooldown_ = 5.0;
+    }
+
+    updateEnemyAI(dt);
+}
+
+Combatsnapshot BattleWidget::CombatsnapshotHelper()
+{
+    CombatSnapshot snapshot;
+    snapshot.playerType = GameManager->getPlayerType();
+    snapshot.EnemyType = GameManager->getEnemyType();
+
+
+    snapshot.playerHp -> player->getHp();
+    snapshot.EnemyHp -> enemy->getHp();
+
+     snapshot.distance = std::abs(playerX_ - enemyX_);
+     snapshot.currentlevel = GameManager->getCurrentlevel();
+     
+     bool allowedType = snapshot.enemyType == EnemyType::FIRE_WORM ||  snapshot.enemyType == EnemyType::NIGHTWEAVER|| snapshot.enemyType == EnemyType::FLYING_DEMON;
+
+     snapshot.projectileAvailable = allowedType && !enemyProjectileActive_;
+
+     return snapshot;
+}
+
+void BattleWidget::updateEnemyAI(double dt)
+{
+if(!hasActiveAiRecommendation_)
+{
+    runDefaultEnemyAI(dt);
+    return;
+}
+Strategy strategy = activeAiRecommendation_.strategy;
+
+double distance = std::abs(playerX_ - enemyX_);
+
+case Strategy::Aggressive:
+{
+    double speed = baseSpeed * 1.3;
+
+    if (playerX_ > enemyX_)
+    {
+        enemyX_ += speed * dt;
+    }
+    else
+    {
+        enemyX_ -= speed * dt;
+    }
+
+    break;
+}
+case Strategy::KeepDistance:
+{
+    double idealDistance = 200.0;
+    double tolerance = 50.0;
+
+    if (distance < idealDistance - tolerance)
+    {
+        // too close → retreat
+        if (playerX_ > enemyX_)
+        {
+            enemyX_ -= baseSpeed * dt;
+        }
+        else
+        {
+            enemyX_ += baseSpeed * dt;
+        }
+    }
+    else if (distance > idealDistance + tolerance)
+    {
+        // too far → move closer slowly
+        if (playerX_ > enemyX_)
+        {
+            enemyX_ += (baseSpeed * 0.7) * dt;
+        }
+        else
+        {
+            enemyX_ -= (baseSpeed * 0.7) * dt;
+        }
+    }
+
+    break;
+}
+
+case Strategy::Defensive:
+{
+    double safeDistance = 250.0;
+
+    if (distance < safeDistance)
+    {
+        if (playerX_ > enemyX_)
+        {
+            enemyX_ -= (baseSpeed * 1.4) * dt;
+        }
+        else
+        {
+            enemyX_ += (baseSpeed * 1.4) * dt;
+        }
+    }
+
+    break;
+}
+
+case Strategy::BaitAttack:
+{
+    double baitDistance = attackRange + 20.0;
+
+    if (distance < baitDistance)
+    {
+        // step away slightly
+        if (playerX_ > enemyX_)
+        {
+            enemyX_ -= baseSpeed * dt;
+        }
+        else
+        {
+            enemyX_ += baseSpeed * dt;
+        }
+    }
+    else if (distance > baitDistance)
+    {
+        // slowly move closer
+        if (playerX_ > enemyX_)
+        {
+            enemyX_ += (baseSpeed * 0.6) * dt;
+        }
+        else
+        {
+            enemyX_ -= (baseSpeed * 0.6) * dt;
+        }
+    }
+
+    break;
+}   
+}
+
+if(!hasActiveAiRecommendation_)
+{
+    runDefaultEnemyAI(dt);
+    return;
+}
+PreferredAttack preferred = activeAiRecommendation_.preferredAttack;
+Strategy strategy = activeAirecommendation_.strategy;
+double distance = std::abs(playerX_ - enemyX_);
+
+if (strategy == Strategy::Defensive)
+{
+    enemyCooldown_ = 0.35;
+}
+if (preferred == PreferredAttack::Projectile
+    && projectileAvailable)
+{
+    int randomValue = rand() % 100;
+
+    if (randomValue < 70)
+    {
+        useProjectileAttack();
+    }
+    else
+    {
+        useMeleeAttack();
+    }
+}
+
+if (preferred == PreferredAttack::Melee)
+{
+    double meleeRange = 100.0;
+   double farDistance = 250.0;
+
+   if (distance <= meleeRange)
+{
+      useMeleeAttack();
+}
+else if (distance >= farDistance
+         && projectileAvailable)
+{
+    useProjectileAttack();
+}
+else
+{
+    runDefaultEnemyAttack(dt);
+}
 }
 
 namespace {
