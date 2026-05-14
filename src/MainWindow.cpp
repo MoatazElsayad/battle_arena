@@ -682,18 +682,12 @@ void MainWindow::buildUi() {
     });
     connect(leaderboardPage_, &LeaderboardPage::backClicked, this, &MainWindow::showSetupPage);
     connect(settingsPage_, &SettingsPage::backClicked, this, &MainWindow::showSetupPage);
-    if (gameManager_ && settingsPage_) {
-        gameManager_->setDifficulty(settingsPage_->getDifficulty());
-    }
     connect(settingsPage_, &SettingsPage::settingsChanged, this,
             [this](int musicVolume, int sfxVolume, DifficultyLevel difficulty) {
-                if (gameManager_) {
-                    gameManager_->setDifficulty(difficulty);
-                }
+                Q_UNUSED(difficulty);
                 if (soundManager_) {
                     soundManager_->setMusicVolume(musicVolume);
                     soundManager_->setSoundVolume(sfxVolume);
-                    soundManager_->playUIConfirm();
                 }
             });
     connect(saveKingIntroPage_, &SaveKingIntroPage::sceneFinished, this, &MainWindow::handleSaveKingSceneFinished);
@@ -2024,7 +2018,7 @@ PlayerProgression MainWindow::applyBattleProgression(const QString& username,
 
         const int previousTier = rankTierForName(previousRank);
         const int newTier = rankTierForName(newRank);
-        QStringList unlockedNames;
+        QString firstUnlockedName;
         PlayerType firstUnlockedType = PlayerType::KNIGHT;
         bool hasUnlockedCharacter = false;
         for (PlayerType type : rosterByUnlockTier()) {
@@ -2032,13 +2026,13 @@ PlayerProgression MainWindow::applyBattleProgression(const QString& username,
             if (unlockTier > previousTier && unlockTier <= newTier) {
                 if (!hasUnlockedCharacter) {
                     firstUnlockedType = type;
+                    firstUnlockedName = QString::fromStdString(InputHandler::playerTypeToDisplayName(type));
                     hasUnlockedCharacter = true;
                 }
-                unlockedNames.append(QString::fromStdString(InputHandler::playerTypeToDisplayName(type)));
             }
         }
-        if (!unlockedNames.isEmpty()) {
-            pendingCharacterUnlockName_ = unlockedNames.join(QStringLiteral(", "));
+        if (hasUnlockedCharacter) {
+            pendingCharacterUnlockName_ = firstUnlockedName;
             pendingCharacterUnlockRank_ = newRank;
             pendingCharacterUnlockImagePath_ = characterImagePath(firstUnlockedType);
         }

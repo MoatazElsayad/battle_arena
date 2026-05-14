@@ -1,4 +1,5 @@
 #include "BattleWidget.h"
+#include "CombatAiAdvisor.h"
 #include "GameManager.h"
 #include "LanSessionManager.h"
 #include "Player.h"
@@ -21,8 +22,6 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
-#include <QTransform>
-#include <array>
 
 namespace {
 QString resolveAssetPath(const QString& relativePath) {
@@ -95,10 +94,11 @@ QString enemyProfilePath(EnemyType type) {
         case EnemyType::ZOMBIE_2:
         case EnemyType::ZOMBIE_3:
         case EnemyType::ZOMBIE_4:
+            return QStringLiteral("assets/beasts/zombies/no_profile.png");
         case EnemyType::ADVANCED_ZOMBIE_1:
         case EnemyType::ADVANCED_ZOMBIE_2:
         case EnemyType::ADVANCED_ZOMBIE_3:
-            return QStringLiteral("assets/beasts/zombies/Zombie_1/Idle.png");
+            return QStringLiteral("assets/beasts/zombies/ad_profile.png");
     }
     return QString();
 }
@@ -416,6 +416,44 @@ HighlightAttackType highlightAttackTypeForAnimation(AnimationState state) {
     }
 }
 
+double meleeRangeForAttack(AnimationState state) {
+    switch (state) {
+        case AnimationState::ATTACK2:
+            return 158.0;
+        case AnimationState::ATTACK3:
+            return 174.0;
+        case AnimationState::ATTACK1:
+        default:
+            return 138.0;
+    }
+}
+
+QString strategyLabel(Strategy strategy) {
+    switch (strategy) {
+        case Strategy::Aggressive:
+            return QStringLiteral("Go Aggressive");
+        case Strategy::KeepDistance:
+            return QStringLiteral("Keep Distance");
+        case Strategy::Defensive:
+            return QStringLiteral("Play Defensive");
+        case Strategy::BaitAttack:
+            return QStringLiteral("Bait Attack");
+    }
+    return QStringLiteral("Use Local Brain");
+}
+
+QString preferredAttackLabel(PreferredAttack attack) {
+    switch (attack) {
+        case PreferredAttack::Melee:
+            return QStringLiteral("Melee");
+        case PreferredAttack::Projectile:
+            return QStringLiteral("Projectile");
+        case PreferredAttack::Any:
+            return QStringLiteral("Any attack");
+    }
+    return QStringLiteral("Any attack");
+}
+
 void drawGroundedSprite(QPainter& painter,
                         const QPixmap& sprite,
                         qreal centerX,
@@ -529,6 +567,13 @@ BattleWidget::BattleWidget(QWidget *parent)
       enemyAiEnemyDamageMemory_(0.0),
       enemyAiLastEnemyHp_(0),
       enemyAiLastAttack_(AnimationState::ATTACK1),
+      combatAiAdvisor_(new CombatAiAdvisor(this)),
+      activeAiRecommendation_(),
+      aiAdvisorHudText_(),
+      hasActiveAiRecommendation_(false),
+      aiRecommendationPending_(false),
+      aiRecommendationTimeLeft_(0.0),
+      aiRecommendationRequestCooldown_(0.0),
       zombieSpawnDelay_(0.0),
       zombieIntroTime_(0.0),
       zombieIntroActive_(false),
@@ -554,6 +599,8 @@ BattleWidget::BattleWidget(QWidget *parent)
     
     frameTimer_.setInterval(16); // ~60 FPS
     connect(&frameTimer_, &QTimer::timeout, this, &BattleWidget::advanceFrame);
+    connect(combatAiAdvisor_, &CombatAiAdvisor::recommendationReady,
+            this, &BattleWidget::handleCombatAiRecommendation);
 }
 
 BattleWidget::~BattleWidget() {
@@ -570,7 +617,7 @@ void BattleWidget::refreshArenaBackground() {
     if (gameManager_ && gameManager_->isZombieMode()) {
         QString backgroundPath;
         if (zombieIntroActive_) {
-            backgroundPath = QStringLiteral("assets/backgrounds/intro.png");
+            backgroundPath = QStringLiteral("assets/backgrounds/zombie_lvl1.png");
         } else if (zombieCityCleaned_) {
             backgroundPath = QStringLiteral("assets/backgrounds/city.png");
         } else {
@@ -806,9 +853,16 @@ void BattleWidget::startBattle() {
     enemyAiEnemyDamageMemory_ = 0.0;
     enemyAiLastEnemyHp_ = 0;
     enemyAiLastAttack_ = AnimationState::ATTACK1;
+    hasActiveAiRecommendation_ = false;
+    aiRecommendationPending_ = false;
+    aiRecommendationTimeLeft_ = 0.0;
+    aiRecommendationRequestCooldown_ = 1.2;
+    aiAdvisorHudText_.clear();
     const double arenaLeft = ARENA_LEFT_X + 70.0;
     const double arenaRight = qMax(arenaLeft + 220.0, double(width()) - ARENA_RIGHT_MARGIN - 70.0);
-    playerX_ = arenaLeft;
+    playerX_ = zombieMode
+        ? qBound(arenaLeft, width() * 0.50, arenaRight)
+        : arenaLeft;
     enemyX_ = arenaRight;
     score_ = 0;
     lanBridgeActive_ = gameManager_->isLanDuel() && lanSessionManager_;
@@ -1342,7 +1396,7 @@ void BattleWidget::tryRemoteLanAttack(AnimationState attackState) {
         damage = static_cast<int>(damage * 1.35);
     }
 
-    if (distToPlayer <= ATTACK_RANGE) {
+    if (distToPlayer <= meleeRangeForAttack(attackState)) {
         player->takeDamage(damage);
         duelRemoteScore_ += damage * 10;
         remoteBattleReport_.damageDealt += qMax(0, damage);
@@ -2581,26 +2635,46 @@ void BattleWidget::advanceFrame() {
         enemyHpDisplay_ += (target - enemyHpDisplay_) * qMin(1.0, 5.0 * dt);
     }
 
+    if (gameManager_->isZombieMode() && zombieIntroActive_) {
+        attackPressed_ = false;
+        healPressed_ = false;
+
+        zombieIntroTime_ = qMax(0.0, zombieIntroTime_ - dt);
+        if (zombieIntroTime_ > 6.0) {
+            statusMessage_ = QStringLiteral("The city is full of zombies...");
+        } else if (zombieIntroTime_ > 2.2) {
+            statusMessage_ = QStringLiteral("Four infected split into the alleys.");
+        } else {
+            statusMessage_ = QStringLiteral("Level 1 begins. Clear the first street.");
+        }
+        statusDisplayTime_ = 1.0;
+
+        if (zombieIntroTime_ <= 0.0 || introLockTime_ <= 0.0) {
+            zombieIntroActive_ = false;
+            zombieIntroTime_ = 0.0;
+            introLockTime_ = 0.0;
+            zombieSpawnDelay_ = 2.2;
+            refreshArenaBackground();
+            prepareZombieSpawn(true);
+        }
+
+        if (playerAnimChar_) {
+            playerAnimChar_->setAnimationState(AnimationState::IDLE);
+            playerAnimChar_->setFacingLeft(enemyX_ < playerX_);
+        }
+        if (enemyAnimChar_) {
+            enemyAnimChar_->setAnimationState(AnimationState::IDLE);
+            enemyAnimChar_->setFacingLeft(playerX_ < enemyX_);
+        }
+        pushHostCombatState(false);
+        update();
+        return;
+    }
+
     if (introLockTime_ > 0.0) {
         attackPressed_ = false;
         healPressed_ = false;
-        if (gameManager_->isZombieMode() && zombieIntroActive_) {
-            zombieIntroTime_ = qMax(0.0, zombieIntroTime_ - dt);
-            if (zombieIntroTime_ > 6.0) {
-                statusMessage_ = QStringLiteral("The city is full of zombies...");
-            } else if (zombieIntroTime_ > 2.2) {
-                statusMessage_ = QStringLiteral("Four infected split into the alleys.");
-            } else {
-                statusMessage_ = QStringLiteral("Level 1 begins. Clear the first street.");
-            }
-            statusDisplayTime_ = 1.0;
-            if (zombieIntroTime_ <= 0.0) {
-                zombieIntroActive_ = false;
-                zombieSpawnDelay_ = 2.2;
-                refreshArenaBackground();
-                prepareZombieSpawn(true);
-            }
-        } else if (gameManager_->isZombieMode()) {
+        if (gameManager_->isZombieMode()) {
             updateZombieEntry(dt);
         }
         if (playerAnimChar_) {
@@ -2806,13 +2880,205 @@ void BattleWidget::updateEnemyAiMemory(double dt) {
 
 void BattleWidget::refreshEnemyAiDecision(double dt, double distance) {
     updateEnemyAiMemory(dt);
+    updateCombatAiAdvisor(dt, distance);
     if (lanBridgeActive_ || enemyAiDecisionTimer_ > 0.0) {
         return;
     }
 
-    enemyAiDecision_ = FighterAiBrain::chooseDecision(buildEnemyAiContext(distance));
+    const FighterAiContext context = buildEnemyAiContext(distance);
+    enemyAiDecision_ = FighterAiBrain::chooseDecision(context);
+    applyCombatAiRecommendation(enemyAiDecision_, context);
     enemyAiDecisionTimer_ = qMax(0.12, enemyAiDecision_.decisionDuration);
     enemyAiLastAttack_ = enemyAiDecision_.attackState;
+}
+
+bool BattleWidget::shouldUseCombatAiAdvisor() const {
+    return gameManager_
+        && (gameManager_->isDuelMode() || gameManager_->getRunMode() == RunMode::CAMPAIGN)
+        && !gameManager_->isLanDuel()
+        && !gameManager_->isZombieMode()
+        && battleActive_
+        && !levelTransitionActive_;
+}
+
+CombatSnapshot BattleWidget::buildCombatSnapshot(double distance) const {
+    CombatSnapshot snapshot;
+    snapshot.distance = distance;
+    snapshot.currentLevel = gameManager_ ? gameManager_->getCurrentLevel() : 1;
+    snapshot.difficulty = gameManager_ ? gameManager_->getDifficulty() : DifficultyLevel::NORMAL;
+    snapshot.playerType = gameManager_ ? gameManager_->getSelectedPlayerType() : PlayerType::KNIGHT;
+
+    const Player *player = gameManager_ ? gameManager_->getPlayer() : nullptr;
+    const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
+    if (player) {
+        snapshot.playerHp = player->getHealth();
+        snapshot.playerMaxHp = player->getMaxHealth();
+    }
+    if (enemy) {
+        snapshot.enemyType = enemy->getEnemyType();
+        snapshot.enemyHp = enemy->getHealth();
+        snapshot.enemyMaxHp = enemy->getMaxHealth();
+    }
+
+    const FighterAiContext context = buildEnemyAiContext(distance);
+    snapshot.projectileAvailable = context.projectileReady;
+    snapshot.healAvailable = context.enemyHealReady;
+    if (enemyAiPlayerMissMemory_ > 0.0) {
+        snapshot.recentPlayerAction = QStringLiteral("missed attack");
+    } else if (enemyAiPlayerHealMemory_ > 0.0) {
+        snapshot.recentPlayerAction = QStringLiteral("healed");
+    } else if (enemyAiPlayerAttackMemory_ > 0.0) {
+        snapshot.recentPlayerAction = QStringLiteral("attacked");
+    } else {
+        snapshot.recentPlayerAction = QStringLiteral("neutral");
+    }
+
+    switch (enemyAiLastAttack_) {
+        case AnimationState::ATTACK1:
+            snapshot.recentEnemyAction = QStringLiteral("attack 1");
+            break;
+        case AnimationState::ATTACK2:
+            snapshot.recentEnemyAction = QStringLiteral("attack 2");
+            break;
+        case AnimationState::ATTACK3:
+            snapshot.recentEnemyAction = QStringLiteral("attack 3");
+            break;
+        default:
+            snapshot.recentEnemyAction = QStringLiteral("movement");
+            break;
+    }
+
+    return snapshot;
+}
+
+void BattleWidget::updateCombatAiAdvisor(double dt, double distance) {
+    aiRecommendationRequestCooldown_ = qMax(0.0, aiRecommendationRequestCooldown_ - dt);
+
+    if (hasActiveAiRecommendation_) {
+        aiRecommendationTimeLeft_ = qMax(0.0, aiRecommendationTimeLeft_ - dt);
+        if (aiRecommendationTimeLeft_ <= 0.0) {
+            hasActiveAiRecommendation_ = false;
+            aiAdvisorHudText_ = QStringLiteral("AI Advisor: waiting for next read");
+        }
+    }
+
+    if (!shouldUseCombatAiAdvisor() || !combatAiAdvisor_ || !combatAiAdvisor_->isConfigured()) {
+        aiRecommendationPending_ = false;
+        if (gameManager_
+            && !gameManager_->isLanDuel()
+            && !gameManager_->isZombieMode()
+            && (gameManager_->isDuelMode() || gameManager_->getRunMode() == RunMode::CAMPAIGN)) {
+            aiAdvisorHudText_ = QStringLiteral("AI Advisor: fallback local brain (not configured)");
+        } else {
+            aiAdvisorHudText_.clear();
+        }
+        return;
+    }
+
+    if (aiRecommendationPending_ || hasActiveAiRecommendation_ || aiRecommendationRequestCooldown_ > 0.0) {
+        return;
+    }
+
+    aiRecommendationPending_ = true;
+    aiRecommendationRequestCooldown_ = 4.5;
+    aiAdvisorHudText_ = QStringLiteral("AI Advisor: asking model...");
+    combatAiAdvisor_->requestRecommendation(buildCombatSnapshot(distance));
+}
+
+void BattleWidget::handleCombatAiRecommendation(const AiRecommendation& recommendation) {
+    aiRecommendationPending_ = false;
+    aiRecommendationRequestCooldown_ = recommendation.fromFallback ? 3.0 : 4.0;
+
+    const QString advisorText = QStringLiteral("AI Advisor: %1 (%2)")
+                                    .arg(strategyLabel(recommendation.strategy),
+                                         preferredAttackLabel(recommendation.preferredAttack));
+
+    // Fallbacks intentionally do not affect combat. The local FighterAiBrain
+    // remains the source of truth whenever the AI provider fails or is absent.
+    if (!shouldUseCombatAiAdvisor() || recommendation.fromFallback) {
+        aiAdvisorHudText_ = recommendation.reason.trimmed().isEmpty()
+            ? QStringLiteral("AI Advisor: fallback local brain")
+            : QStringLiteral("AI Advisor: fallback local brain - %1").arg(recommendation.reason.trimmed());
+        return;
+    }
+
+    activeAiRecommendation_ = recommendation;
+    hasActiveAiRecommendation_ = true;
+    aiRecommendationTimeLeft_ = qBound(0.8, recommendation.durationMs / 1000.0, 4.0);
+    aiAdvisorHudText_ = advisorText;
+    enemyAiDecisionTimer_ = 0.0;
+}
+
+void BattleWidget::applyCombatAiRecommendation(FighterAiDecision& decision,
+                                               const FighterAiContext& context) const {
+    if (!shouldUseCombatAiAdvisor() || !hasActiveAiRecommendation_ || activeAiRecommendation_.fromFallback) {
+        return;
+    }
+
+    const FighterAiProfile profile = FighterAiBrain::profileForContext(context);
+    const bool canProjectile = profile.hasProjectile && context.projectileReady;
+    const double distance = qMax(0.0, context.distance);
+
+    switch (activeAiRecommendation_.strategy) {
+        case Strategy::Aggressive:
+            if (distance <= context.attackRange) {
+                decision.state = FighterAiState::MeleeAttack;
+                decision.wantsAttack = true;
+            } else if (distance <= context.attackRange + 130.0) {
+                decision.state = FighterAiState::Punish;
+                decision.wantsAttack = true;
+            } else {
+                decision.state = FighterAiState::Approach;
+            }
+            decision.moveSpeedMultiplier = qMax(decision.moveSpeedMultiplier, 1.18);
+            break;
+        case Strategy::KeepDistance:
+            if (activeAiRecommendation_.preferredAttack == PreferredAttack::Projectile && canProjectile
+                && distance > context.attackRange * 0.65) {
+                decision.state = FighterAiState::ProjectileAttack;
+                decision.wantsProjectile = true;
+                decision.wantsAttack = false;
+            } else if (distance < profile.idealMinRange) {
+                decision.state = FighterAiState::Retreat;
+                decision.wantsAttack = false;
+            } else {
+                decision.state = FighterAiState::HoldRange;
+            }
+            decision.moveSpeedMultiplier = qMax(decision.moveSpeedMultiplier, 1.05);
+            break;
+        case Strategy::Defensive:
+            decision.state = distance < profile.idealMinRange ? FighterAiState::Retreat : FighterAiState::HoldRange;
+            decision.wantsAttack = false;
+            decision.wantsProjectile = false;
+            if (context.enemyHealReady && context.enemyHp < context.enemyMaxHp * 0.50) {
+                decision.wantsHeal = true;
+                decision.state = FighterAiState::Retreat;
+            }
+            decision.moveSpeedMultiplier = qMax(decision.moveSpeedMultiplier, 0.95);
+            break;
+        case Strategy::BaitAttack:
+            decision.state = context.playerRecentlyMissed && distance <= context.attackRange + 120.0
+                ? FighterAiState::Punish
+                : FighterAiState::Bait;
+            decision.wantsAttack = decision.state == FighterAiState::Punish;
+            decision.wantsProjectile = false;
+            break;
+    }
+
+    if (activeAiRecommendation_.preferredAttack == PreferredAttack::Projectile && canProjectile
+        && distance > context.attackRange * 0.65) {
+        decision.wantsProjectile = true;
+        if (decision.state != FighterAiState::Retreat && decision.state != FighterAiState::Bait) {
+            decision.state = FighterAiState::ProjectileAttack;
+        }
+    } else if (activeAiRecommendation_.preferredAttack == PreferredAttack::Melee) {
+        decision.wantsProjectile = false;
+        if (distance <= context.attackRange + 60.0) {
+            decision.wantsAttack = true;
+        }
+    }
+
+    decision.decisionDuration = qMin(decision.decisionDuration, 0.55);
 }
 
 void BattleWidget::resetZombieModeState() {
@@ -3182,7 +3448,8 @@ void BattleWidget::tryPlayerAttack(double dt) {
         soundManager_->playAttack();
     }
     
-    if (distToEnemy <= ATTACK_RANGE) {
+    const double playerMeleeRange = meleeRangeForAttack(queuedPlayerAttackState_);
+    if (distToEnemy <= playerMeleeRange) {
         int damage = player->calculateDamage();
         if (queuedPlayerAttackState_ == AnimationState::ATTACK2) {
             damage = static_cast<int>(damage * 1.2);
@@ -3344,7 +3611,8 @@ void BattleWidget::tryEnemyAttack(double dt) {
         return;
     }
 
-    if (distToPlayer <= ATTACK_RANGE) {
+    const double enemyMeleeRange = meleeRangeForAttack(enemyAiDecision_.attackState);
+    if (distToPlayer <= enemyMeleeRange) {
         int damage = enemy->calculateDamage();
         AnimationState enemyAttackAnim = enemyAiDecision_.attackState;
         if (enemyAttackAnim == AnimationState::ATTACK2) {
@@ -3791,7 +4059,7 @@ void BattleWidget::loadEnemyAnimations(EnemyType type) {
                                                                          : 3;
             basePath = resolveAssetPath(QString("assets/beasts/zombies/Advanced_Zombie_%1").arg(zombieIndex));
             const int idleCount = zombieIndex == 1 ? 5 : (zombieIndex == 2 ? 9 : 8);
-            const int runCount = zombieIndex == 1 ? 7 : 8;
+            const int runCount = zombieIndex == 2 ? 8 : 7;
             const int hurtCount = zombieIndex == 2 ? 5 : 3;
             const int attack1Count = zombieIndex == 3 ? 5 : 4;
             const int attack2Count = 4;
@@ -4368,6 +4636,7 @@ void BattleWidget::drawHUD(QPainter &painter) {
     const QRectF playerPanel(outerMargin, hudY, panelWidth, panelHeight);
     const QRectF enemyPanel(width() - outerMargin - panelWidth, hudY, panelWidth, panelHeight);
     const QRectF scorePanel((width() - centerWidth) / 2.0, hudY - 2.0, centerWidth, panelHeight + 8.0);
+    const bool zombieHud = gameManager_->isZombieMode();
 
     auto drawPanel = [&](const QRectF &panelRect,
                          bool leftAligned,
@@ -4386,8 +4655,8 @@ void BattleWidget::drawHUD(QPainter &painter) {
         painter.save();
         painter.setPen(Qt::NoPen);
         painter.fillPath(panelPath.translated(0, 4), QColor(0, 0, 0, 55));
-        painter.fillPath(panelPath, QColor(34, 20, 13, 225));
-        painter.setPen(QPen(QColor("#D4AF37"), 2));
+        painter.fillPath(panelPath, zombieHud ? QColor(12, 31, 22, 229) : QColor(34, 20, 13, 225));
+        painter.setPen(QPen(zombieHud ? QColor("#46D77F") : QColor("#D4AF37"), 2));
         painter.drawPath(panelPath);
 
         const qreal portraitSize = 112.0;
@@ -4401,7 +4670,7 @@ void BattleWidget::drawHUD(QPainter &painter) {
         const qreal contentRight = leftAligned ? (panelRect.right() - 18.0) : (portraitRect.left() - 18.0);
         const QRectF headerStrip(contentLeft, panelRect.y() + 12.0, qMax(0.0, contentRight - contentLeft), 30.0);
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(255, 255, 255, 16));
+        painter.setBrush(zombieHud ? QColor(70, 220, 132, 24) : QColor(255, 255, 255, 16));
         painter.drawRoundedRect(headerStrip, 10, 10);
         drawPortraitBadge(painter, portraitRect, portrait, accentEnd.lighter(118), portraitFallback);
 
@@ -4424,7 +4693,7 @@ void BattleWidget::drawHUD(QPainter &painter) {
         const qreal headerWidth = qMax(0.0, contentRight - contentLeft);
         QFont titleFont = fittedHudTitleFont(title, headerWidth);
         painter.setFont(titleFont);
-        painter.setPen(QColor("#F7D774"));
+        painter.setPen(zombieHud ? QColor("#B7FFD1") : QColor("#F7D774"));
         painter.drawText(QRectF(contentLeft, panelRect.y() + 10.0, headerWidth, 20.0),
                          leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
                          title);
@@ -4434,14 +4703,14 @@ void BattleWidget::drawHUD(QPainter &painter) {
         subFont.setPointSize(8);
         subFont.setBold(false);
         painter.setFont(subFont);
-        painter.setPen(QColor("#C6A66A"));
+        painter.setPen(zombieHud ? QColor("#7EE6A6") : QColor("#C6A66A"));
         painter.drawText(QRectF(contentLeft, panelRect.y() + 34.0, qMax(0.0, contentRight - contentLeft), 16.0),
                          leftAligned ? Qt::AlignLeft | Qt::AlignTop : Qt::AlignRight | Qt::AlignTop,
                          subtitle);
 
         const QRectF barRect(contentLeft, panelRect.bottom() - 21.0, qMax(0.0, contentRight - contentLeft), 16.0);
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(67, 44, 29, 235));
+        painter.setBrush(zombieHud ? QColor(20, 58, 39, 235) : QColor(67, 44, 29, 235));
         painter.drawRoundedRect(barRect, 8, 8);
 
         const double clampedRatio = qBound(0.0, displayRatio, 1.0);
@@ -4465,7 +4734,7 @@ void BattleWidget::drawHUD(QPainter &painter) {
 
         QFont valueFont("Segoe UI", 8, QFont::Bold);
         painter.setFont(valueFont);
-        painter.setPen(QColor("#FFF3C4"));
+        painter.setPen(zombieHud ? QColor("#E8FFF0") : QColor("#FFF3C4"));
         painter.drawText(barRect, Qt::AlignCenter, QString("%1 / %2").arg(hp).arg(maxHp));
         painter.restore();
     };
@@ -4480,8 +4749,8 @@ void BattleWidget::drawHUD(QPainter &painter) {
               playerHpDisplay_,
               playerProfilePortrait_,
               QString::fromStdString(player->getName()),
-              QColor("#7CFF63"),
-              QColor("#22C55E"));
+              zombieHud ? QColor("#B7FFD1") : QColor("#7CFF63"),
+              zombieHud ? QColor("#20B86A") : QColor("#22C55E"));
 
     drawPanel(enemyPanel,
               false,
@@ -4494,24 +4763,71 @@ void BattleWidget::drawHUD(QPainter &painter) {
               enemyHpDisplay_,
               enemyProfilePortrait_,
               QString::fromStdString(enemy->getName()),
-              QColor("#FF9A56"),
-              QColor("#DC2626"));
+              zombieHud ? QColor("#A8F05E") : QColor("#FF9A56"),
+              zombieHud ? QColor("#2F9E44") : QColor("#DC2626"));
+
+    if (!gameManager_->isLanDuel()
+        && !gameManager_->isZombieMode()
+        && (gameManager_->isDuelMode() || gameManager_->getRunMode() == RunMode::CAMPAIGN)) {
+        QString advisorText = aiAdvisorHudText_.trimmed();
+        if (advisorText.isEmpty()) {
+            advisorText = combatAiAdvisor_ && combatAiAdvisor_->isConfigured()
+                ? QStringLiteral("AI Advisor: warming up")
+                : QStringLiteral("AI Advisor: fallback local brain (not configured)");
+        }
+
+        QFont advisorFont("Segoe UI", 8, QFont::DemiBold);
+        painter.setFont(advisorFont);
+        QFontMetrics metrics(advisorFont);
+        const int maxAdvisorWidth = qMin<int>(panelWidth, width() - 2 * outerMargin);
+        QString elidedText = metrics.elidedText(advisorText, Qt::ElideRight, maxAdvisorWidth - 30);
+        const int advisorWidth = qMin(maxAdvisorWidth, metrics.horizontalAdvance(elidedText) + 30);
+        const QRectF advisorRect(enemyPanel.right() - advisorWidth,
+                                 enemyPanel.bottom() + 8.0,
+                                 advisorWidth,
+                                 28.0);
+
+        const bool fallbackRead = advisorText.contains(QStringLiteral("fallback"), Qt::CaseInsensitive);
+        const bool pendingRead = advisorText.contains(QStringLiteral("asking"), Qt::CaseInsensitive)
+            || advisorText.contains(QStringLiteral("warming"), Qt::CaseInsensitive)
+            || advisorText.contains(QStringLiteral("waiting"), Qt::CaseInsensitive);
+
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(fallbackRead ? QColor(55, 29, 18, 218)
+                                      : (pendingRead ? QColor(45, 35, 13, 218)
+                                                     : QColor(18, 46, 30, 220)));
+        painter.drawRoundedRect(advisorRect, 13, 13);
+        painter.setPen(QPen(fallbackRead ? QColor("#F59E0B")
+                                          : (pendingRead ? QColor("#D4AF37")
+                                                         : QColor("#6EE7B7")),
+                            1.4));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(advisorRect.adjusted(0.7, 0.7, -0.7, -0.7), 13, 13);
+        painter.setPen(fallbackRead ? QColor("#FCD9A5")
+                                    : (pendingRead ? QColor("#FFE08A")
+                                                   : QColor("#B9F7D0")));
+        painter.drawText(advisorRect.adjusted(14, 0, -14, 0), Qt::AlignVCenter | Qt::AlignLeft, elidedText);
+        painter.restore();
+    }
 
     QPainterPath scorePath;
     scorePath.addRoundedRect(scorePanel, 22, 22);
     painter.fillPath(scorePath.translated(0, 4), QColor(0, 0, 0, 60));
-    painter.fillPath(scorePath, QColor(24, 13, 9, 232));
-    painter.setPen(QPen(QColor("#D4AF37"), 2));
+    painter.fillPath(scorePath, zombieHud ? QColor(9, 27, 20, 235) : QColor(24, 13, 9, 232));
+    painter.setPen(QPen(zombieHud ? QColor("#46D77F") : QColor("#D4AF37"), 2));
     painter.drawPath(scorePath);
 
-    painter.setPen(QColor("#C6A66A"));
+    painter.setPen(zombieHud ? QColor("#8EF0B0") : QColor("#C6A66A"));
     QFont labelFont("Segoe UI", 8, QFont::DemiBold);
     painter.setFont(labelFont);
     painter.drawText(scorePanel.adjusted(0, 8, 0, 0),
                      Qt::AlignHCenter | Qt::AlignTop,
                      gameManager_->isLanDuel()
                          ? "ARENA LINK DUEL"
-                         : (gameManager_->isDuelMode() ? "1V1 EXHIBITION" : "ARENA SCORE"));
+                         : (gameManager_->isZombieMode() ? "ZOMBIE OUTBREAK"
+                                                         : (gameManager_->isDuelMode() ? "1V1 EXHIBITION" : "ARENA SCORE")));
 
     QFont scoreFont("Showcard Gothic", 24);
     if (scoreFont.family() != "Showcard Gothic") {
@@ -4520,12 +4836,12 @@ void BattleWidget::drawHUD(QPainter &painter) {
         scoreFont.setBold(true);
     }
     painter.setFont(scoreFont);
-    painter.setPen(QColor("#FFD700"));
+    painter.setPen(zombieHud ? QColor("#B7FFD1") : QColor("#FFD700"));
     painter.drawText(scorePanel.adjusted(0, 18, 0, -6), Qt::AlignCenter, QString::number(score_));
 
     QFont levelFont("Segoe UI", 8, QFont::Bold);
     painter.setFont(levelFont);
-    painter.setPen(QColor("#F3D38C"));
+    painter.setPen(zombieHud ? QColor("#CFFFE0") : QColor("#F3D38C"));
     painter.drawText(scorePanel.adjusted(0, 0, 0, 8), Qt::AlignHCenter | Qt::AlignBottom,
                      (gameManager_->isLanDuel() || gameManager_->isDuelMode())
                          ? QStringLiteral("ROUND 1 / 1")
@@ -4564,6 +4880,9 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
 
     if (isPlayer) {
         flipSprite = playerAnimChar_->isFacingLeft();
+        if (gameManager_ && gameManager_->getSelectedPlayerType() == PlayerType::HUNTRESS) {
+            flipSprite = !flipSprite;
+        }
     } else {
         const Enemy *enemy = gameManager_ ? gameManager_->getCurrentEnemy() : nullptr;
         const EnemyType enemyType = enemy ? enemy->getEnemyType() : EnemyType::FIRE_WORM;
@@ -4578,14 +4897,23 @@ void BattleWidget::drawFighterWithAnimation(QPainter &painter, double x, double 
                    enemyType == EnemyType::ZOMBIE_3 ||
                    enemyType == EnemyType::ZOMBIE_4) {
             desiredVisibleHeight *= 0.88;
+        } else if (enemyType == EnemyType::ADVANCED_ZOMBIE_2) {
+            desiredVisibleHeight *= 0.72;
         } else if (enemyType == EnemyType::ADVANCED_ZOMBIE_1 ||
-                   enemyType == EnemyType::ADVANCED_ZOMBIE_2 ||
                    enemyType == EnemyType::ADVANCED_ZOMBIE_3) {
-            desiredVisibleHeight *= 0.96;
+            desiredVisibleHeight *= 0.98;
         }
 
         flipSprite = enemyAnimChar_->isFacingLeft();
         if (enemyType == EnemyType::FLYING_DEMON) {
+            flipSprite = !flipSprite;
+        }
+        const bool opponentIsHuntress = gameManager_
+            && (gameManager_->isLanDuel()
+                || (gameManager_->isDuelMode()
+                    && gameManager_->getDuelConfig().category == DuelOpponentCategory::PLAYER_TYPE))
+            && gameManager_->getLanOpponentPlayerType() == PlayerType::HUNTRESS;
+        if (opponentIsHuntress) {
             flipSprite = !flipSprite;
         }
     }

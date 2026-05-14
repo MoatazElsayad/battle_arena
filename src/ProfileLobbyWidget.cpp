@@ -50,7 +50,7 @@ namespace {
 
 constexpr qreal kLobbyPreviewScaleMultiplier = 1.836;
 constexpr qreal kLobbyPreviewFloorLiftRatio = 0.13;
-constexpr int kCharacterUnlockRevealMs = 8400;
+constexpr int kCharacterUnlockRevealMs = 3600;
 constexpr int kPreviewSceneWidth = 1200;
 constexpr int kPreviewSceneHeight = 1280;
 const QString kPlayableLobbyMode = QStringLiteral("Save the Kings");
@@ -952,17 +952,17 @@ void ProfileLobbyWidget::setupRankUpgradeOverlay() {
 
     rankUpgradePanel_ = new QFrame(rankUpgradeOverlay_);
     rankUpgradePanel_->setObjectName("rankUpgradePanel");
-    rankUpgradePanel_->setMinimumWidth(620);
-    rankUpgradePanel_->setMaximumWidth(720);
+    rankUpgradePanel_->setMinimumWidth(680);
+    rankUpgradePanel_->setMaximumWidth(800);
     rankUpgradePanel_->setStyleSheet(
         "QFrame#rankUpgradePanel {"
         " background: rgba(26, 17, 12, 224);"
         " border: 1px solid rgba(226, 170, 81, 0.66);"
         " border-radius: 28px;"
         "}"
-        "QLabel#rankUpgradeEyebrow { color:rgba(245,213,143,0.72); font:800 11px 'Segoe UI'; letter-spacing:2px; }"
-        "QLabel#rankUpgradeTitle { color:#FFF0C6; font:900 35px 'Segoe UI'; letter-spacing:1.5px; }"
-        "QLabel#rankUpgradeBody { color:rgba(245,230,184,0.84); font:13px 'Segoe UI'; }"
+        "QLabel#rankUpgradeEyebrow { color:rgba(245,213,143,0.78); font:800 11px 'Segoe UI'; letter-spacing:2px; }"
+        "QLabel#rankUpgradeTitle { color:#FFF0C6; font:900 34px 'Segoe UI'; letter-spacing:1.3px; }"
+        "QLabel#rankUpgradeBody { color:rgba(245,230,184,0.88); font:14px 'Segoe UI'; }"
         "QLabel#rankUpgradeOldBadge, QLabel#rankUpgradeNewBadge {"
         " color:rgba(245,230,184,0.82);"
         " background: rgba(8, 7, 6, 0.34);"
@@ -1054,7 +1054,7 @@ void ProfileLobbyWidget::setupRankUpgradeOverlay() {
     panelLayout->addWidget(rankUpgradeBadgeRowWidget_);
 
     characterUnlockView_ = new QGraphicsView(rankUpgradePanel_);
-    characterUnlockView_->setFixedSize(560, 340);
+    characterUnlockView_->setFixedSize(620, 360);
     characterUnlockView_->setFrameShape(QFrame::NoFrame);
     characterUnlockView_->setRenderHint(QPainter::Antialiasing, true);
     characterUnlockView_->setRenderHint(QPainter::SmoothPixmapTransform, true);
@@ -1064,7 +1064,7 @@ void ProfileLobbyWidget::setupRankUpgradeOverlay() {
     characterUnlockView_->hide();
 
     characterUnlockScene_ = new QGraphicsScene(characterUnlockView_);
-    characterUnlockScene_->setSceneRect(0, 0, 560, 340);
+    characterUnlockScene_->setSceneRect(0, 0, 620, 360);
     characterUnlockScene_->setBackgroundBrush(Qt::transparent);
     characterUnlockView_->setScene(characterUnlockScene_);
 
@@ -1165,9 +1165,9 @@ void ProfileLobbyWidget::prepareCharacterUnlockReveal(const QString& characterNa
     const QString resolvedImagePath = resolveAssetPath(imagePath);
     const QString portraitPath = profilePortraitPathForCharacter(characterName, resolvedImagePath);
     QPixmap portrait(!portraitPath.isEmpty() ? portraitPath : resolvedImagePath);
-    QPixmap portraitPixmap = circularPortraitPixmap(portrait, QSize(220, 220));
+    QPixmap portraitPixmap = circularPortraitPixmap(portrait, QSize(250, 250));
     if (portraitPixmap.isNull()) {
-        portraitPixmap = createCharacterPlaceholder(QSize(220, 220), characterName);
+        portraitPixmap = createCharacterPlaceholder(QSize(250, 250), characterName);
     }
 
     characterUnlockPortraitItem_->setPixmap(portraitPixmap);
@@ -1198,32 +1198,30 @@ void ProfileLobbyWidget::updateCharacterUnlockReveal(qreal progress) {
     }
 
     const QRectF sceneRect = characterUnlockScene_->sceneRect();
-    const QPointF center(sceneRect.width() * 0.5, sceneRect.height() * 0.52);
+    const QPointF portraitCenter(sceneRect.width() * 0.32, sceneRect.height() * 0.52);
+    const QPointF fighterCenter(sceneRect.width() * 0.70, sceneRect.height() * 0.57);
 
     if (characterUnlockGlowItem_) {
         const qreal glowRamp = smoothStep(scaledBetween(0.0, 0.30, progress));
-        const qreal glowFade = 1.0 - smoothStep(scaledBetween(0.40, 0.70, progress));
-        const qreal fighterGlow = smoothStep(scaledBetween(0.58, 0.82, progress)) * 0.34;
-        const qreal glowOpacity = qMax(glowRamp * glowFade * 0.82, fighterGlow);
+        const qreal glowOpacity = 0.26 + glowRamp * 0.42;
         characterUnlockGlowItem_->setOpacity(glowOpacity);
-        characterUnlockGlowItem_->setScale(0.82 + smoothStep(progress) * 0.32);
+        characterUnlockGlowItem_->setScale(0.90 + smoothStep(progress) * 0.18);
         const QRectF glowBounds = characterUnlockGlowItem_->boundingRect();
-        characterUnlockGlowItem_->setPos(center.x() - glowBounds.width() * characterUnlockGlowItem_->scale() * 0.5,
-                                         center.y() - glowBounds.height() * characterUnlockGlowItem_->scale() * 0.5);
+        characterUnlockGlowItem_->setPos(fighterCenter.x() - glowBounds.width() * characterUnlockGlowItem_->scale() * 0.5,
+                                         fighterCenter.y() - glowBounds.height() * characterUnlockGlowItem_->scale() * 0.5);
     }
 
     const QRectF portraitBounds = characterUnlockPortraitItem_->boundingRect();
-    const qreal portraitIn = smoothStep(scaledBetween(0.0, 0.32, progress));
-    const qreal portraitOut = 1.0 - smoothStep(scaledBetween(0.42, 0.62, progress));
-    const qreal portraitScale = 0.36 + portraitIn * 0.82 + smoothStep(scaledBetween(0.32, 0.42, progress)) * 0.06;
-    characterUnlockPortraitItem_->setOpacity(qBound(0.0, portraitOut, 1.0));
+    const qreal portraitIn = smoothStep(scaledBetween(0.0, 0.25, progress));
+    const qreal portraitScale = 0.78 + portraitIn * 0.22;
+    characterUnlockPortraitItem_->setOpacity(qBound(0.0, portraitIn, 1.0));
     characterUnlockPortraitItem_->setScale(portraitScale);
-    characterUnlockPortraitItem_->setPos(center.x() - portraitBounds.width() * 0.5,
-                                         center.y() - portraitBounds.height() * 0.5);
+    characterUnlockPortraitItem_->setPos(portraitCenter.x() - portraitBounds.width() * 0.5,
+                                         portraitCenter.y() - portraitBounds.height() * 0.5);
     characterUnlockPortraitItem_->setVisible(characterUnlockPortraitItem_->opacity() > 0.02);
 
     if (!characterUnlockIdleFrames_.isEmpty()) {
-        const qreal revealProgress = scaledBetween(0.56, 1.0, progress);
+        const qreal revealProgress = scaledBetween(0.24, 1.0, progress);
         const int frameIndex = qBound(0,
                                       static_cast<int>((revealProgress * kCharacterUnlockRevealMs) / 110.0) % characterUnlockIdleFrames_.size(),
                                       characterUnlockIdleFrames_.size() - 1);
@@ -1231,15 +1229,15 @@ void ProfileLobbyWidget::updateCharacterUnlockReveal(qreal progress) {
     }
 
     const QRectF fighterBounds = characterUnlockFighterItem_->boundingRect();
-    const qreal fighterIn = smoothStep(scaledBetween(0.52, 0.78, progress));
-    const qreal maxFighterWidth = sceneRect.width() * 0.52;
-    const qreal maxFighterHeight = sceneRect.height() * 0.74;
+    const qreal fighterIn = smoothStep(scaledBetween(0.18, 0.48, progress));
+    const qreal maxFighterWidth = sceneRect.width() * 0.34;
+    const qreal maxFighterHeight = sceneRect.height() * 0.72;
     const qreal fighterScale = qMin(maxFighterWidth / qMax(1.0, fighterBounds.width()),
                                     maxFighterHeight / qMax(1.0, fighterBounds.height()));
     characterUnlockFighterItem_->setOpacity(fighterIn);
-    characterUnlockFighterItem_->setScale(fighterScale * (0.88 + fighterIn * 0.12));
-    characterUnlockFighterItem_->setPos(center.x() - fighterBounds.width() * 0.5,
-                                        sceneRect.height() * 0.86 - fighterBounds.height() * 0.5);
+    characterUnlockFighterItem_->setScale(fighterScale * (0.92 + fighterIn * 0.08));
+    characterUnlockFighterItem_->setPos(fighterCenter.x() - fighterBounds.width() * 0.5,
+                                        sceneRect.height() * 0.84 - fighterBounds.height() * 0.5);
     characterUnlockFighterItem_->setVisible(fighterIn > 0.02);
 }
 
@@ -1311,7 +1309,6 @@ void ProfileLobbyWidget::showCharacterUnlockPopup(const QString& characterName,
     if (!rankUpgradeOverlay_ || characterName.trimmed().isEmpty()) {
         return;
     }
-    Q_UNUSED(rankName);
 
     if (rankUpgradeOverlay_->isVisible() && !rankUpgradeOverlayClosing_) {
         pendingCharacterUnlockName_ = characterName;
@@ -1320,24 +1317,58 @@ void ProfileLobbyWidget::showCharacterUnlockPopup(const QString& characterName,
         return;
     }
 
+    displayCharacterUnlockPopup(characterName, rankName, imagePath);
+}
+
+void ProfileLobbyWidget::displayCharacterUnlockPopup(const QString& characterName,
+                                                     const QString& rankName,
+                                                     const QString& imagePath) {
+    if (!rankUpgradeOverlay_ || characterName.trimmed().isEmpty()) {
+        return;
+    }
+
     const QString fighterName = characterName.trimmed();
+    const QString unlockedRank = rankName.trimmed();
     showingCharacterUnlockPopup_ = true;
-    characterUnlockClaimReady_ = false;
+    characterUnlockClaimReady_ = true;
+
+    if (rankUpgradeOverlayAnimation_) {
+        rankUpgradeOverlayAnimation_->stop();
+    }
+    if (auto* overlayEffect = qobject_cast<QGraphicsOpacityEffect*>(rankUpgradeOverlay_->graphicsEffect())) {
+        overlayEffect->setOpacity(1.0);
+    }
 
     if (rankUpgradeEyebrowLabel_) {
-        rankUpgradeEyebrowLabel_->setText(QStringLiteral("FIGHTER UNLOCKED"));
+        rankUpgradeEyebrowLabel_->setText(QStringLiteral("NEW GLADIATOR UNLOCKED"));
     }
     if (rankUpgradeBadgeRowWidget_) {
         rankUpgradeBadgeRowWidget_->hide();
+    }
+    if (rankUpgradeOldRankLabel_) {
+        rankUpgradeOldRankLabel_->clear();
+    }
+    if (rankUpgradeNewRankLabel_) {
+        rankUpgradeNewRankLabel_->clear();
+    }
+    if (rankUpgradeOldBadgeLabel_) {
+        rankUpgradeOldBadgeLabel_->clear();
+    }
+    if (rankUpgradeNewBadgeLabel_) {
+        rankUpgradeNewBadgeLabel_->clear();
     }
     if (characterUnlockView_) {
         characterUnlockView_->show();
     }
 
-    rankUpgradeTitleLabel_->setText(QStringLiteral("YOU UNLOCKED %1").arg(fighterName.toUpper()));
-    rankUpgradeBodyLabel_->setText(QStringLiteral("%1 has joined your roster. Watch the reveal, then claim the fighter when the prompt appears.")
-                                       .arg(fighterName));
-    rankUpgradeHintLabel_->setText(QStringLiteral("PRESS SPACE TO CLAIM"));
+    rankUpgradeTitleLabel_->setText(QStringLiteral("CONGRATS, %1 IS YOURS").arg(fighterName.toUpper()));
+    rankUpgradeBodyLabel_->setText(
+        unlockedRank.isEmpty()
+            ? QStringLiteral("%1 has joined your roster. Their profile portrait and idle stance are now available in the lobby.")
+                  .arg(fighterName)
+            : QStringLiteral("%1 has joined your roster at %2 rank. Their profile portrait and idle stance are now available in the lobby.")
+                  .arg(fighterName, unlockedRank));
+    rankUpgradeHintLabel_->setText(QStringLiteral("PRESS SPACE TO CLAIM FIGHTER"));
     rankUpgradeHintLabel_->hide();
 
     prepareCharacterUnlockReveal(fighterName, imagePath);
@@ -1347,6 +1378,7 @@ void ProfileLobbyWidget::showCharacterUnlockPopup(const QString& characterName,
         characterUnlockRevealAnimation_->setEndValue(1.0);
         characterUnlockRevealAnimation_->setDuration(kCharacterUnlockRevealMs);
     }
+    updateCharacterUnlockReveal(1.0);
 
     syncRankUpgradeOverlay();
     rankUpgradeOverlayClosing_ = false;
@@ -1354,14 +1386,8 @@ void ProfileLobbyWidget::showCharacterUnlockPopup(const QString& characterName,
     rankUpgradeOverlay_->raise();
     rankUpgradeOverlay_->setFocus(Qt::OtherFocusReason);
 
-    if (rankUpgradeOverlayAnimation_) {
-        rankUpgradeOverlayAnimation_->stop();
-        rankUpgradeOverlayAnimation_->setStartValue(0.0);
-        rankUpgradeOverlayAnimation_->setEndValue(1.0);
-        rankUpgradeOverlayAnimation_->start();
-    }
-    if (characterUnlockRevealAnimation_) {
-        characterUnlockRevealAnimation_->start();
+    if (rankUpgradeHintLabel_) {
+        rankUpgradeHintLabel_->show();
     }
 }
 
@@ -1370,6 +1396,21 @@ void ProfileLobbyWidget::claimRankUpgradePopup() {
         return;
     }
     if (showingCharacterUnlockPopup_ && !characterUnlockClaimReady_) {
+        return;
+    }
+
+    if (!showingCharacterUnlockPopup_ && !pendingCharacterUnlockName_.trimmed().isEmpty()) {
+        const QString characterName = pendingCharacterUnlockName_;
+        const QString rankName = pendingCharacterUnlockRank_;
+        const QString imagePath = pendingCharacterUnlockImagePath_;
+        pendingCharacterUnlockName_.clear();
+        pendingCharacterUnlockRank_.clear();
+        pendingCharacterUnlockImagePath_.clear();
+        if (rankUpgradeOverlayAnimation_) {
+            rankUpgradeOverlayAnimation_->stop();
+        }
+        rankUpgradeOverlayClosing_ = false;
+        displayCharacterUnlockPopup(characterName, rankName, imagePath);
         return;
     }
 

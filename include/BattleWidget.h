@@ -10,12 +10,14 @@
 #include <optional>
 #include <QVector>
 #include "ChronicleAiTypes.h"
+#include "CombatAiTypes.h"
 #include "CombatHighlightTracker.h"
 #include "ControllerInputManager.h"
 #include "Enums.h"
 #include "FighterAiBrain.h"
 #include "NetTypes.h"
 
+class CombatAiAdvisor;
 class GameManager;
 class LanSessionManager;
 class Character;
@@ -89,6 +91,12 @@ private:
     FighterAiContext buildEnemyAiContext(double distance) const;
     void updateEnemyAiMemory(double dt);
     void refreshEnemyAiDecision(double dt, double distance);
+    bool shouldUseCombatAiAdvisor() const;
+    CombatSnapshot buildCombatSnapshot(double distance) const;
+    void updateCombatAiAdvisor(double dt, double distance);
+    void handleCombatAiRecommendation(const AiRecommendation& recommendation);
+    void applyCombatAiRecommendation(FighterAiDecision& decision,
+                                     const FighterAiContext& context) const;
     void resetZombieModeState();
     void prepareZombieSpawn(bool firstSpawn);
     void updateZombieEntry(double dt);
@@ -245,6 +253,13 @@ private:
     double enemyAiEnemyDamageMemory_;
     int enemyAiLastEnemyHp_;
     AnimationState enemyAiLastAttack_;
+    CombatAiAdvisor *combatAiAdvisor_;
+    AiRecommendation activeAiRecommendation_;
+    QString aiAdvisorHudText_;
+    bool hasActiveAiRecommendation_;
+    bool aiRecommendationPending_;
+    double aiRecommendationTimeLeft_;
+    double aiRecommendationRequestCooldown_;
     double zombieSpawnDelay_;
     double zombieIntroTime_;
     bool zombieIntroActive_;
@@ -265,7 +280,7 @@ private:
     static constexpr double FIGHTER_VISIBLE_HEIGHT_RATIO = 0.432;
     static constexpr double ARCEN_ARROW_LAUNCH_HEIGHT_RATIO = 0.73;
     static constexpr double MOVE_SPEED = 200.0;
-    static constexpr double ATTACK_RANGE = 120.0;
+    static constexpr double ATTACK_RANGE = 138.0;
     static constexpr double ARCEN_PROJECTILE_HIT_WIDTH = 45.0;
     static constexpr double ENEMY_PROJECTILE_HIT_WIDTH = 52.0;
     static constexpr double PLAYER_ATTACK_COOLDOWN = 0.8;

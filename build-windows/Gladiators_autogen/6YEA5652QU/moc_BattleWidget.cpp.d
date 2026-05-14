@@ -1,6 +1,7 @@
 C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652QU/moc_BattleWidget.cpp: C:/Users/moael/Programming/Gladiators/include/BattleWidget.h \
   C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/moc_predefs.h \
   C:/Users/moael/Programming/Gladiators/include/ChronicleAiTypes.h \
+  C:/Users/moael/Programming/Gladiators/include/CombatAiTypes.h \
   C:/Users/moael/Programming/Gladiators/include/CombatHighlightTracker.h \
   C:/Users/moael/Programming/Gladiators/include/CombatHighlightTypes.h \
   C:/Users/moael/Programming/Gladiators/include/ControllerInputManager.h \

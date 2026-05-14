@@ -119,6 +119,9 @@ private:
     QString badgeColorFor(const QString& badge) const;
     void prepareCharacterUnlockReveal(const QString& characterName, const QString& imagePath);
     void updateCharacterUnlockReveal(qreal progress);
+    void displayCharacterUnlockPopup(const QString& characterName,
+                                     const QString& rankName,
+                                     const QString& imagePath);
     void claimRankUpgradePopup();
     void syncRankUpgradeOverlay();
     void refreshProfileUi();

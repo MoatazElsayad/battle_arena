@@ -20,6 +20,7 @@ add_executable(${PROJECT_NAME}
     src/Character.cpp
     src/ChronicleAiAdvisor.cpp
     src/ChronicleOpenRouterClient.cpp
+    src/CombatAiAdvisor.cpp
     src/CombatHighlightTracker.cpp
     src/ControllerInputManager.cpp
     src/DatabaseManager.cpp
@@ -37,6 +38,7 @@ add_executable(${PROJECT_NAME}
     src/LanSessionManager.cpp
     src/LevelTransitionChroniclePage.cpp
     src/MainWindow.cpp
+    src/OpenRouterClient.cpp
     src/PausePage.cpp
     src/Player.cpp
     src/ProfilePage.cpp
@@ -53,6 +55,8 @@ add_executable(${PROJECT_NAME}
     include/ChronicleAiAdvisor.h
     include/ChronicleAiTypes.h
     include/ChronicleOpenRouterClient.h
+    include/CombatAiAdvisor.h
+    include/CombatAiTypes.h
     include/CombatHighlightTracker.h
     include/CombatHighlightTypes.h
     include/ControllerInputManager.h
@@ -73,6 +77,7 @@ add_executable(${PROJECT_NAME}
     include/LevelTransitionChroniclePage.h
     include/MainWindow.h
     include/NetTypes.h
+    include/OpenRouterClient.h
     include/PausePage.h
     include/Player.h
     include/ProfilePage.h

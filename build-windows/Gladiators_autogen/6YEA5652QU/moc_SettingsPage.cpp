@@ -51,8 +51,7 @@ template <> constexpr inline auto SettingsPage::qt_create_metaobjectdata<qt_meta
         "onMusicVolumeChanged",
         "value",
         "onSfxVolumeChanged",
-        "onDifficultyChanged",
-        "index"
+        "refreshInputStatus"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -72,10 +71,8 @@ template <> constexpr inline auto SettingsPage::qt_create_metaobjectdata<qt_meta
         QtMocHelpers::SlotData<void(int)>(11, 2, QMC::AccessPrivate, QMetaType::Void, {{
             { QMetaType::Int, 10 },
         }}),
-        // Slot 'onDifficultyChanged'
-        QtMocHelpers::SlotData<void(int)>(12, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { QMetaType::Int, 13 },
-        }}),
+        // Slot 'refreshInputStatus'
+        QtMocHelpers::SlotData<void()>(12, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -104,7 +101,7 @@ void SettingsPage::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id
         case 2: _t->onBackClicked(); break;
         case 3: _t->onMusicVolumeChanged((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
         case 4: _t->onSfxVolumeChanged((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
-        case 5: _t->onDifficultyChanged((*reinterpret_cast<std::add_pointer_t<int>>(_a[1]))); break;
+        case 5: _t->refreshInputStatus(); break;
         default: ;
         }
     }

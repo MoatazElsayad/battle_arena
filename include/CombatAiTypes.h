@@ -1,41 +1,45 @@
-// Shared combat AI data only.
-// Add:
-// - CombatSnapshot: current battle state sent to the advisor
-// - AiRecommendation: short tactical result returned to combat
-// Keep both structs small and simple.
-
+#ifndef COMBAT_AI_TYPES_H
+#define COMBAT_AI_TYPES_H
 
 #include "Enums.h"
 
+#include <QString>
+
 enum class Strategy {
-    aggressive,
-    keep_distance,
-    defensive,
-    bait_attack
+    Aggressive,
+    KeepDistance,
+    Defensive,
+    BaitAttack
 };
 
 enum class PreferredAttack {
-    melee,
-    projectile,
-    any
+    Melee,
+    Projectile,
+    Any
 };
 
-struct CombatSnapshot
-{
-PlayerType player_type;
-EnemyType enemy_type;
-int player_hp;
-int enemy_hp;
-int distance_between_player_enemy;
-DifficultyLevel current_level;
-bool is_enemy_projectile_available;
-AnimationState recent_player_action;
-AnimationState recent_enemy_action;
+struct CombatSnapshot {
+    PlayerType playerType = PlayerType::KNIGHT;
+    EnemyType enemyType = EnemyType::FIRE_WORM;
+    int playerHp = 0;
+    int playerMaxHp = 0;
+    int enemyHp = 0;
+    int enemyMaxHp = 0;
+    double distance = 0.0;
+    int currentLevel = 1;
+    DifficultyLevel difficulty = DifficultyLevel::NORMAL;
+    bool projectileAvailable = false;
+    bool healAvailable = false;
+    QString recentPlayerAction;
+    QString recentEnemyAction;
 };
 
-struct AiRecommendation
-{
-Strategy strategy;
-PreferredAttack Attack;
-double durationMs;
+struct AiRecommendation {
+    Strategy strategy = Strategy::Aggressive;
+    PreferredAttack preferredAttack = PreferredAttack::Any;
+    int durationMs = 1200;
+    bool fromFallback = false;
+    QString reason;
 };
+
+#endif // COMBAT_AI_TYPES_H

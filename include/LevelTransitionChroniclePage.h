@@ -58,6 +58,7 @@ private:
     QPixmap playerPreviewPixmap() const;
     QRectF aiSummaryPanelRect() const;
     void drawAiSummaryPanel(QPainter &painter, qreal seconds);
+    bool isZombieChronicle() const;
 
     QTimer frameTimer_;
     QElapsedTimer sceneClock_;

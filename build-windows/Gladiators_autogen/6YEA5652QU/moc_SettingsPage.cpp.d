@@ -1,5 +1,6 @@
 C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652QU/moc_SettingsPage.cpp: C:/Users/moael/Programming/Gladiators/include/SettingsPage.h \
   C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/moc_predefs.h \
+  C:/Users/moael/Programming/Gladiators/include/ControllerInputManager.h \
   C:/Users/moael/Programming/Gladiators/include/Enums.h \
   C:/msys64/ucrt64/include/_mingw.h \
   C:/msys64/ucrt64/include/_mingw_mac.h \
@@ -197,6 +198,8 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/pthread_signal.h \
   C:/msys64/ucrt64/include/pthread_time.h \
   C:/msys64/ucrt64/include/pthread_unistd.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/QString \
+  C:/msys64/ucrt64/include/qt6/QtCore/QTimer \
   C:/msys64/ucrt64/include/qt6/QtCore/q17memory.h \
   C:/msys64/ucrt64/include/qt6/QtCore/q20functional.h \
   C:/msys64/ucrt64/include/qt6/QtCore/q20iterator.h \
@@ -204,7 +207,7 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/q20type_traits.h \
   C:/msys64/ucrt64/include/qt6/QtCore/q20utility.h \
   C:/msys64/ucrt64/include/qt6/QtCore/q23utility.h \
-  C:/msys64/ucrt64/include/qt6/QtCore/qabstractitemmodel.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/qabstracteventdispatcher.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qalgorithms.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qalloc.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qanystringview.h \
@@ -215,6 +218,7 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/qatomic.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qatomic_cxx11.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qbasicatomic.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/qbasictimer.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qbindingstorage.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qbytearray.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qbytearrayalgorithms.h \
@@ -234,8 +238,10 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/qcontiguouscache.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qdarwinhelpers.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qdatastream.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/qdeadlinetimer.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qdebug.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qendian.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/qeventloop.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qexceptionhandling.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qflags.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qfloat16.h \
@@ -254,7 +260,6 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/qlatin1stringview.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qline.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qlist.h \
-  C:/msys64/ucrt64/include/qt6/QtCore/qlocale.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qlogging.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qmalloc.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qmap.h \
@@ -275,7 +280,6 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/qprocessordetection.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qrect.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qrefcount.h \
-  C:/msys64/ucrt64/include/qt6/QtCore/qregularexpression.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qscopedpointer.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qscopeguard.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qset.h \
@@ -312,6 +316,7 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtCore/qtenvironmentvariables.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qtextstream.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qtformat_impl.h \
+  C:/msys64/ucrt64/include/qt6/QtCore/qtimer.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qtmetamacros.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qtnoop.h \
   C:/msys64/ucrt64/include/qt6/QtCore/qtpreprocessorsupport.h \
@@ -355,29 +360,19 @@ C:/Users/moael/Programming/Gladiators/build-windows/Gladiators_autogen/6YEA5652Q
   C:/msys64/ucrt64/include/qt6/QtGui/qtguiexports.h \
   C:/msys64/ucrt64/include/qt6/QtGui/qtguiglobal.h \
   C:/msys64/ucrt64/include/qt6/QtGui/qtransform.h \
-  C:/msys64/ucrt64/include/qt6/QtGui/qvalidator.h \
   C:/msys64/ucrt64/include/qt6/QtGui/qwindowdefs.h \
   C:/msys64/ucrt64/include/qt6/QtGui/qwindowdefs_win.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/QComboBox \
   C:/msys64/ucrt64/include/qt6/QtWidgets/QLabel \
   C:/msys64/ucrt64/include/qt6/QtWidgets/QPushButton \
   C:/msys64/ucrt64/include/qt6/QtWidgets/QSlider \
   C:/msys64/ucrt64/include/qt6/QtWidgets/QWidget \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractbutton.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractitemdelegate.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractslider.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractspinbox.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qcombobox.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qframe.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qlabel.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qpushbutton.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qrubberband.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qsizepolicy.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qslider.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qstyle.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qstyleoption.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qtabbar.h \
-  C:/msys64/ucrt64/include/qt6/QtWidgets/qtabwidget.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qtwidgets-config.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qtwidgetsexports.h \
   C:/msys64/ucrt64/include/qt6/QtWidgets/qtwidgetsglobal.h \

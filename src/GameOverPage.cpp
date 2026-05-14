@@ -23,7 +23,7 @@ GameOverPage::GameOverPage(QWidget *parent)
     setStyleSheet(
         "QWidget#gameOverRoot {"
         " background:qradialgradient(cx:0.5, cy:0.42, radius:0.92,"
-        " stop:0 #3A2418, stop:0.48 #22140D, stop:1 #090605);"
+        " stop:0 #402818, stop:0.42 #22140D, stop:1 #070403);"
         " color:#F5E6D3;"
         "}"
     );
@@ -34,9 +34,10 @@ GameOverPage::GameOverPage(QWidget *parent)
     container->setMaximumWidth(920);
     container->setStyleSheet(
         "QFrame#resultCard {"
-        " background:rgba(18,14,12,0.92);"
-        " border:2px solid rgba(212,160,23,0.40);"
-        " border-radius:28px;"
+        " background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+        " stop:0 rgba(43,30,20,0.96), stop:0.5 rgba(20,14,11,0.94), stop:1 rgba(12,8,7,0.97));"
+        " border:2px solid rgba(212,160,23,0.52);"
+        " border-radius:30px;"
         "}"
         "QLabel { background:transparent; }"
     );
@@ -67,7 +68,7 @@ GameOverPage::GameOverPage(QWidget *parent)
     ui->overLabel->setText("SAVE THE KING");
     ui->overLabel->setAlignment(Qt::AlignCenter);
     ui->overLabel->setStyleSheet(
-        "color:#D4A017;"
+        "color:#FFD45A;"
         "font:900 44px 'Showcard Gothic';"
         "letter-spacing:3px;"
     );
@@ -86,8 +87,8 @@ GameOverPage::GameOverPage(QWidget *parent)
     ui->scorePoints->setMinimumHeight(210);
     ui->scorePoints->setStyleSheet(
         "QLabel#scorePoints {"
-        " background:rgba(43,31,22,0.88);"
-        " border:1px solid rgba(212,160,23,0.34);"
+        " background:rgba(31,22,16,0.92);"
+        " border:1px solid rgba(255,206,91,0.42);"
         " border-radius:18px;"
         " padding:20px 24px;"
         " color:#F5E6D3;"
@@ -235,21 +236,21 @@ void GameOverPage::setBattleStats(int damageDealt, int damageTaken, int score) {
         "<div style=\"font-size:17pt; font-weight:900; color:#FFF0C6; margin-bottom:10px;\">%1</div>"
         "<table width=\"100%%\" cellspacing=\"10\" cellpadding=\"8\">"
         "<tr>"
-        "<td style=\"background:#21150E; border:1px solid #7C5A24; border-radius:10px;\">"
+        "<td style=\"background:#25180F; border:1px solid #9A6F28; border-radius:10px;\">"
         "<span style=\"font-size:9pt; color:#D4A017; font-weight:800;\">%2</span><br>"
         "<span style=\"font-size:20pt; color:%3; font-weight:900;\">%4</span>"
         "</td>"
-        "<td style=\"background:#21150E; border:1px solid #7C5A24; border-radius:10px;\">"
+        "<td style=\"background:#25180F; border:1px solid #9A6F28; border-radius:10px;\">"
         "<span style=\"font-size:9pt; color:#D4A017; font-weight:800;\">POINTS EARNED</span><br>"
         "<span style=\"font-size:20pt; color:#FFD700; font-weight:900;\">%5</span>"
         "</td>"
         "</tr>"
         "<tr>"
-        "<td style=\"background:#21150E; border:1px solid #7C5A24; border-radius:10px;\">"
+        "<td style=\"background:#1C130D; border:1px solid #6E4D20; border-radius:10px;\">"
         "<span style=\"font-size:9pt; color:#D4A017; font-weight:800;\">DAMAGE DEALT</span><br>"
         "<span style=\"font-size:18pt; color:#F5E6D3; font-weight:900;\">%6</span>"
         "</td>"
-        "<td style=\"background:#21150E; border:1px solid #7C5A24; border-radius:10px;\">"
+        "<td style=\"background:#1C130D; border:1px solid #6E4D20; border-radius:10px;\">"
         "<span style=\"font-size:9pt; color:#D4A017; font-weight:800;\">DAMAGE TAKEN</span><br>"
         "<span style=\"font-size:18pt; color:#F5E6D3; font-weight:900;\">%7</span>"
         "</td>"

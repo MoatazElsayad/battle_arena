@@ -211,9 +211,6 @@ void GamePage::onBattleFinished() {
         }
 
         if (advancedLevelPrepared) {
-            if (chronicleAiAdvisor_) {
-                chronicleAiAdvisor_->prefetchSummary(pendingChronicleReport_);
-            }
             emit chronicleRequested(1, false);
             return;
         }

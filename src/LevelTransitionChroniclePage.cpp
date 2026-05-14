@@ -242,7 +242,9 @@ void LevelTransitionChroniclePage::configure(int completedLevel, int totalLevels
     cachedPlayerType_ = playerType_;
 
     if (replayButton_) {
-        replayButton_->setText(QString("Replay Realm %1").arg(completedLevel_));
+        replayButton_->setText(isZombieChronicle()
+                                   ? QString("Replay Outbreak %1").arg(completedLevel_)
+                                   : QString("Replay Realm %1").arg(completedLevel_));
     }
 }
 
@@ -265,7 +267,9 @@ void LevelTransitionChroniclePage::startChronicle() {
     setFocus();
     update();
 
-    if (aiAdvisor_) {
+    if (isZombieChronicle()) {
+        aiSummaryLoading_ = false;
+    } else if (aiAdvisor_) {
         aiAdvisor_->requestSummary(battleReport_);
     }
 }
@@ -307,6 +311,13 @@ void LevelTransitionChroniclePage::setupButtons() {
 }
 
 QVector<LevelTransitionChroniclePage::RealmInfo> LevelTransitionChroniclePage::realms() const {
+    if (isZombieChronicle()) {
+        return {
+            {1, "Infected Streets", "Four zombies cleared from the first street.", "assets/backgrounds/zombie_lvl1.png", 1},
+            {2, "Advanced Outbreak", "Advanced infected still haunt the city.",    "assets/backgrounds/zombie_lvl2.png", 2}
+        };
+    }
+
     return {
         {1, "Ember Gate",      "The first flame was driven back.",  "assets/backgrounds/Level_1.png", 1},
         {2, "Ashen Court",     "The court walls still stand.",      "assets/backgrounds/Level_2.png", 1},
@@ -396,6 +407,11 @@ void LevelTransitionChroniclePage::keyPressEvent(QKeyEvent *event) {
 }
 
 void LevelTransitionChroniclePage::wheelEvent(QWheelEvent *event) {
+    if (isZombieChronicle()) {
+        QWidget::wheelEvent(event);
+        return;
+    }
+
     if (!aiSummaryPanelRect().contains(event->position())) {
         QWidget::wheelEvent(event);
         return;
@@ -411,7 +427,17 @@ QRectF LevelTransitionChroniclePage::aiSummaryPanelRect() const {
     return QRectF(width() * 0.735, height() * 0.045, width() * 0.225, height() * 0.255);
 }
 
+bool LevelTransitionChroniclePage::isZombieChronicle() const {
+    return battleReport_.nextEnemyType.compare(QStringLiteral("Zombie Outbreak"), Qt::CaseInsensitive) == 0
+        || battleReport_.nextEnemyName.contains(QStringLiteral("zombie"), Qt::CaseInsensitive)
+        || totalLevels_ == 2;
+}
+
 void LevelTransitionChroniclePage::drawAiSummaryPanel(QPainter &painter, qreal seconds) {
+    if (isZombieChronicle()) {
+        return;
+    }
+
     const qreal w = width();
     const qreal h = height();
     const QRectF panelRect = aiSummaryPanelRect();
@@ -534,13 +560,14 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
     const qreal w       = width();
     const qreal h       = height();
     const qreal intro   = easeOutCubic(seconds / 1.25);
+    const bool zombieChronicle = isZombieChronicle();
 
     // ── Background gradient ──────────────────────────────────────────────────
     QLinearGradient bg(0, 0, w, h);
-    bg.setColorAt(0.00, QColor("#120B08"));
-    bg.setColorAt(0.32, QColor("#2A1810"));
-    bg.setColorAt(0.70, QColor("#4C2F1B"));
-    bg.setColorAt(1.00, QColor("#160C08"));
+    bg.setColorAt(0.00, zombieChronicle ? QColor("#07140E") : QColor("#120B08"));
+    bg.setColorAt(0.32, zombieChronicle ? QColor("#10291A") : QColor("#2A1810"));
+    bg.setColorAt(0.70, zombieChronicle ? QColor("#173E27") : QColor("#4C2F1B"));
+    bg.setColorAt(1.00, zombieChronicle ? QColor("#07100B") : QColor("#160C08"));
     painter.fillRect(rect(), bg);
 
     // ── Floating ember particles ─────────────────────────────────────────────
@@ -551,7 +578,8 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
         const qreal x      = std::fmod(seed * 17.0 + seconds * (10.0 + (i % 5) * 3.5), w + 80.0) - 40.0;
         const qreal y      = std::fmod(seed * 9.0  + std::sin(seconds * 0.7 + i) * 24.0, h);
         const qreal radius = 1.8 + (i % 4);
-        painter.setBrush(QColor(212, 160, 23, 58 + (i % 5) * 14));
+        painter.setBrush(zombieChronicle ? QColor(70, 220, 132, 46 + (i % 5) * 12)
+                                         : QColor(212, 160, 23, 58 + (i % 5) * 14));
         painter.drawEllipse(QPointF(x, y), radius, radius);
     }
     painter.restore();
@@ -564,40 +592,50 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
         titleFont.setBold(true);
     }
     painter.setFont(titleFont);
-    painter.setPen(QColor(70, 16, 12, 210));
+    const QString pageTitle = zombieChronicle
+        ? QStringLiteral("OUTBREAK CHRONICLE")
+        : QStringLiteral("THE KINGDOM CHRONICLE");
+    painter.setPen(zombieChronicle ? QColor(6, 31, 17, 220) : QColor(70, 16, 12, 210));
     const QRectF titleRect(w * 0.045, h * 0.035, w * 0.64, h * 0.08);
-    painter.drawText(titleRect.translated(3, 3), Qt::AlignLeft | Qt::AlignVCenter, "THE KINGDOM CHRONICLE");
-    painter.setPen(QColor("#FFD700"));
-    painter.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter, "THE KINGDOM CHRONICLE");
+    painter.drawText(titleRect.translated(3, 3), Qt::AlignLeft | Qt::AlignVCenter, pageTitle);
+    painter.setPen(zombieChronicle ? QColor("#B7FFD1") : QColor("#FFD700"));
+    painter.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter, pageTitle);
 
     // ── Progress bar ─────────────────────────────────────────────────────────
     const qreal safety = 100.0 * completedLevel_ / qMax(1, totalLevels_);
     const QRectF progressShell(w * 0.052, h * 0.125, w * 0.48, 24);
-    painter.setPen(QPen(QColor("#D4AF37"), 2));
-    painter.setBrush(QColor(34, 20, 13, 230));
+    painter.setPen(QPen(zombieChronicle ? QColor("#46D77F") : QColor("#D4AF37"), 2));
+    painter.setBrush(zombieChronicle ? QColor(8, 28, 18, 230) : QColor(34, 20, 13, 230));
     painter.drawRoundedRect(progressShell, 12, 12);
 
     QRectF progressFill = progressShell.adjusted(4, 4, -4, -4);
     progressFill.setWidth(progressFill.width() * safety / 100.0);
     if (progressFill.width() > 0) {
         QLinearGradient progressGradient(progressFill.topLeft(), progressFill.topRight());
-        progressGradient.setColorAt(0.00, QColor("#7A1010"));
-        progressGradient.setColorAt(0.55, QColor("#D43B24"));
-        progressGradient.setColorAt(1.00, QColor("#D4AF37"));
+        progressGradient.setColorAt(0.00, zombieChronicle ? QColor("#125C32") : QColor("#7A1010"));
+        progressGradient.setColorAt(0.55, zombieChronicle ? QColor("#22C55E") : QColor("#D43B24"));
+        progressGradient.setColorAt(1.00, zombieChronicle ? QColor("#B7FFD1") : QColor("#D4AF37"));
         painter.setPen(Qt::NoPen);
         painter.setBrush(progressGradient);
         painter.drawRoundedRect(progressFill, 8, 8);
     }
 
     painter.setFont(QFont("Segoe UI", 11, QFont::Bold));
-    painter.setPen(QColor("#F3D38C"));
+    painter.setPen(zombieChronicle ? QColor("#DDFCE7") : QColor("#F3D38C"));
     painter.drawText(progressShell, Qt::AlignCenter,
-                     QString("THE KING'S SAFETY: %1%     Realms Saved: %2 / %3")
+                     zombieChronicle
+                         ? QString("CITY CLEANUP: %1%     Outbreaks Cleared: %2 / %3")
+                               .arg(static_cast<int>(std::round(safety)))
+                               .arg(completedLevel_)
+                               .arg(totalLevels_)
+                         : QString("THE KING'S SAFETY: %1%     Realms Saved: %2 / %3")
                          .arg(static_cast<int>(std::round(safety)))
                          .arg(completedLevel_)
                          .arg(totalLevels_));
 
-    drawAiSummaryPanel(painter, seconds);
+    if (!zombieChronicle) {
+        drawAiSummaryPanel(painter, seconds);
+    }
 
     // ── Scroll / main panel (animates in) ────────────────────────────────────
     const QRectF scrollRect(w * 0.055, h * 0.22, w * 0.89 * intro, h * 0.54);
@@ -629,9 +667,9 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
     const qreal startX = scrollRect.left()  + scrollRect.width() * 0.08;
     const qreal endX   = scrollRect.right() - scrollRect.width() * 0.08;
 
-    painter.setPen(QPen(QColor("#7A1010"), 13, Qt::SolidLine, Qt::RoundCap));
+    painter.setPen(QPen(zombieChronicle ? QColor("#0F5A32") : QColor("#7A1010"), 13, Qt::SolidLine, Qt::RoundCap));
     painter.drawLine(QPointF(startX, pathY), QPointF(endX, pathY));
-    painter.setPen(QPen(QColor("#D4AF37"),  5, Qt::SolidLine, Qt::RoundCap));
+    painter.setPen(QPen(zombieChronicle ? QColor("#46D77F") : QColor("#D4AF37"),  5, Qt::SolidLine, Qt::RoundCap));
     painter.drawLine(QPointF(startX, pathY), QPointF(endX, pathY));
 
     // ── Portal positions ─────────────────────────────────────────────────────
@@ -676,8 +714,11 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
         painter.restore();
 
         // Portal ring
-        QColor frameColor = locked ? QColor("#7C6B58")
-                                   : (justCompleted ? QColor("#D43B24") : QColor("#D4AF37"));
+        QColor frameColor = locked
+            ? QColor("#7C6B58")
+            : (justCompleted
+                   ? (zombieChronicle ? QColor("#22C55E") : QColor("#D43B24"))
+                   : (zombieChronicle ? QColor("#46D77F") : QColor("#D4AF37")));
         painter.setPen(QPen(frameColor, justCompleted ? 7 : 5));
         painter.setBrush(Qt::NoBrush);
         painter.drawEllipse(portalRect);
@@ -685,9 +726,9 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
         // Glow aura on just-completed portal
         if (justCompleted) {
             QRadialGradient aura(center, radius * 1.7);
-            aura.setColorAt(0.0,  QColor(212, 59,  36,  95));
-            aura.setColorAt(0.55, QColor(212, 175, 55,  55));
-            aura.setColorAt(1.0,  QColor(212, 59,  36,   0));
+            aura.setColorAt(0.0,  zombieChronicle ? QColor(34, 197, 94, 105) : QColor(212, 59,  36,  95));
+            aura.setColorAt(0.55, zombieChronicle ? QColor(183, 255, 209, 55) : QColor(212, 175, 55,  55));
+            aura.setColorAt(1.0,  zombieChronicle ? QColor(34, 197, 94, 0) : QColor(212, 59,  36,   0));
             painter.setPen(Qt::NoPen);
             painter.setBrush(aura);
             painter.drawEllipse(center, radius * 1.7, radius * 1.7);
@@ -698,24 +739,29 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
         painter.setPen(QColor("#F3D38C"));
         const QRectF textRect(center.x() - radius * 1.3, center.y() + radius + 8, radius * 2.6, 54);
         painter.drawText(textRect, Qt::AlignHCenter | Qt::TextWordWrap,
-                         QString("Level %1 - %2\n%3")
+                         QString("%1 %2 - %3\n%4")
+                             .arg(zombieChronicle ? QStringLiteral("Outbreak") : QStringLiteral("Level"))
                              .arg(realm.level)
                              .arg(realm.name)
-                             .arg(locked ? "Next Realm" : realm.blurb));
+                             .arg(locked
+                                      ? (zombieChronicle ? QStringLiteral("Next infected wave") : QStringLiteral("Next Realm"))
+                                      : realm.blurb));
 
         // Overlay text inside portal
         if (completed) {
             painter.setFont(QFont("Segoe UI", 12, QFont::Black));
-            painter.setPen(QColor("#D4AF37"));
-            painter.drawText(portalRect, Qt::AlignCenter, "KING\nSAVED");
+            painter.setPen(zombieChronicle ? QColor("#B7FFD1") : QColor("#D4AF37"));
+            painter.drawText(portalRect, Qt::AlignCenter, zombieChronicle ? "STREET\nCLEAR" : "KING\nSAVED");
         } else if (justCompleted) {
             painter.setFont(QFont("Segoe UI", 11, QFont::Black));
             painter.setPen(QColor("#FFF1D0"));
-            painter.drawText(portalRect.adjusted(0, radius * 0.35, 0, 0), Qt::AlignCenter, "JUST\nSAVED!");
+            painter.drawText(portalRect.adjusted(0, radius * 0.35, 0, 0),
+                             Qt::AlignCenter,
+                             zombieChronicle ? "WAVE\nCLEARED!" : "JUST\nSAVED!");
         } else {
             painter.setFont(QFont("Segoe UI", 20, QFont::Black));
             painter.setPen(QColor("#E3E7F0"));
-            painter.drawText(portalRect, Qt::AlignCenter, "LOCKED");
+            painter.drawText(portalRect, Qt::AlignCenter, zombieChronicle ? "INFESTED" : "LOCKED");
             painter.setFont(QFont("Segoe UI", 9, QFont::Bold));
             painter.drawText(portalRect.adjusted(0, radius * 0.54, 0, 0), Qt::AlignCenter,
                              QString(realm.difficulty, QChar('*')));
@@ -749,9 +795,9 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
             // Speed trail
             QLinearGradient trail(knightPos.x() - portalRadius * 0.8,  pathY,
                                   knightPos.x() + portalRadius * 0.35, pathY);
-            trail.setColorAt(0.0,  QColor(212, 59,  36,   0));
-            trail.setColorAt(0.45, QColor(212, 59,  36, 105));
-            trail.setColorAt(1.0,  QColor(212, 175, 55,   0));
+            trail.setColorAt(0.0,  zombieChronicle ? QColor(34, 197, 94, 0) : QColor(212, 59,  36,   0));
+            trail.setColorAt(0.45, zombieChronicle ? QColor(34, 197, 94, 100) : QColor(212, 59,  36, 105));
+            trail.setColorAt(1.0,  zombieChronicle ? QColor(183, 255, 209, 0) : QColor(212, 175, 55,   0));
             painter.setPen(QPen(QBrush(trail), 5, Qt::SolidLine, Qt::RoundCap));
             painter.drawLine(QPointF(knightPos.x() - portalRadius * 0.85, pathY - 2),
                              QPointF(knightPos.x() + portalRadius * 0.15, pathY - 2));
@@ -787,9 +833,9 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
             // Speed trail
             QLinearGradient trail(knightPos.x() - portalRadius * 0.8,  pathY,
                                   knightPos.x() + portalRadius * 0.35, pathY);
-            trail.setColorAt(0.0,  QColor(212, 59,  36,   0));
-            trail.setColorAt(0.45, QColor(212, 59,  36, 105));
-            trail.setColorAt(1.0,  QColor(212, 175, 55,   0));
+            trail.setColorAt(0.0,  zombieChronicle ? QColor(34, 197, 94, 0) : QColor(212, 59,  36,   0));
+            trail.setColorAt(0.45, zombieChronicle ? QColor(34, 197, 94, 100) : QColor(212, 59,  36, 105));
+            trail.setColorAt(1.0,  zombieChronicle ? QColor(183, 255, 209, 0) : QColor(212, 175, 55,   0));
             painter.setPen(QPen(QBrush(trail), 5, Qt::SolidLine, Qt::RoundCap));
             painter.drawLine(QPointF(knightPos.x() - portalRadius * 0.85, pathY - 2),
                              QPointF(knightPos.x() + portalRadius * 0.15, pathY - 2));
@@ -821,5 +867,7 @@ void LevelTransitionChroniclePage::paintEvent(QPaintEvent *event) {
     painter.setFont(QFont("Georgia", 13, QFont::DemiBold));
     painter.setPen(QColor("#F3D38C"));
     painter.drawText(QRectF(w * 0.18, h * 0.79, w * 0.64, 42), Qt::AlignCenter,
-                     "Another realm saved... The King's light grows stronger. Yet greater trials await...");
+                     zombieChronicle
+                         ? "The first street is cleared. Advanced infected are moving deeper inside the city."
+                         : "Another realm saved... The King's light grows stronger. Yet greater trials await...");
 }

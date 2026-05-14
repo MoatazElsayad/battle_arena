@@ -11,6 +11,8 @@ Gladiators_autogen/timestamp: \
 	C:/Users/moael/Programming/Gladiators/include/ChronicleAiAdvisor.h \
 	C:/Users/moael/Programming/Gladiators/include/ChronicleAiTypes.h \
 	C:/Users/moael/Programming/Gladiators/include/ChronicleOpenRouterClient.h \
+	C:/Users/moael/Programming/Gladiators/include/CombatAiAdvisor.h \
+	C:/Users/moael/Programming/Gladiators/include/CombatAiTypes.h \
 	C:/Users/moael/Programming/Gladiators/include/CombatHighlightTracker.h \
 	C:/Users/moael/Programming/Gladiators/include/CombatHighlightTypes.h \
 	C:/Users/moael/Programming/Gladiators/include/ControllerInputManager.h \
@@ -31,6 +33,7 @@ Gladiators_autogen/timestamp: \
 	C:/Users/moael/Programming/Gladiators/include/LevelTransitionChroniclePage.h \
 	C:/Users/moael/Programming/Gladiators/include/MainWindow.h \
 	C:/Users/moael/Programming/Gladiators/include/NetTypes.h \
+	C:/Users/moael/Programming/Gladiators/include/OpenRouterClient.h \
 	C:/Users/moael/Programming/Gladiators/include/PausePage.h \
 	C:/Users/moael/Programming/Gladiators/include/Player.h \
 	C:/Users/moael/Programming/Gladiators/include/ProfileLobbyWidget.h \
@@ -46,6 +49,7 @@ Gladiators_autogen/timestamp: \
 	C:/Users/moael/Programming/Gladiators/src/Character.cpp \
 	C:/Users/moael/Programming/Gladiators/src/ChronicleAiAdvisor.cpp \
 	C:/Users/moael/Programming/Gladiators/src/ChronicleOpenRouterClient.cpp \
+	C:/Users/moael/Programming/Gladiators/src/CombatAiAdvisor.cpp \
 	C:/Users/moael/Programming/Gladiators/src/CombatHighlightTracker.cpp \
 	C:/Users/moael/Programming/Gladiators/src/ControllerInputManager.cpp \
 	C:/Users/moael/Programming/Gladiators/src/DatabaseManager.cpp \
@@ -63,6 +67,7 @@ Gladiators_autogen/timestamp: \
 	C:/Users/moael/Programming/Gladiators/src/LeaderboardPage.cpp \
 	C:/Users/moael/Programming/Gladiators/src/LevelTransitionChroniclePage.cpp \
 	C:/Users/moael/Programming/Gladiators/src/MainWindow.cpp \
+	C:/Users/moael/Programming/Gladiators/src/OpenRouterClient.cpp \
 	C:/Users/moael/Programming/Gladiators/src/PausePage.cpp \
 	C:/Users/moael/Programming/Gladiators/src/Player.cpp \
 	C:/Users/moael/Programming/Gladiators/src/ProfileLobbyWidget.cpp \
@@ -295,7 +300,6 @@ Gladiators_autogen/timestamp: \
 	C:/msys64/ucrt64/include/qt6/QtCore/q20utility.h \
 	C:/msys64/ucrt64/include/qt6/QtCore/q23utility.h \
 	C:/msys64/ucrt64/include/qt6/QtCore/qabstracteventdispatcher.h \
-	C:/msys64/ucrt64/include/qt6/QtCore/qabstractitemmodel.h \
 	C:/msys64/ucrt64/include/qt6/QtCore/qalgorithms.h \
 	C:/msys64/ucrt64/include/qt6/QtCore/qalloc.h \
 	C:/msys64/ucrt64/include/qt6/QtCore/qanystringview.h \
@@ -465,7 +469,6 @@ Gladiators_autogen/timestamp: \
 	C:/msys64/ucrt64/include/qt6/QtGui/qtguiexports.h \
 	C:/msys64/ucrt64/include/qt6/QtGui/qtguiglobal.h \
 	C:/msys64/ucrt64/include/qt6/QtGui/qtransform.h \
-	C:/msys64/ucrt64/include/qt6/QtGui/qvalidator.h \
 	C:/msys64/ucrt64/include/qt6/QtGui/qwindowdefs.h \
 	C:/msys64/ucrt64/include/qt6/QtGui/qwindowdefs_win.h \
 	C:/msys64/ucrt64/include/qt6/QtNetwork/QAbstractSocket \
@@ -473,27 +476,19 @@ Gladiators_autogen/timestamp: \
 	C:/msys64/ucrt64/include/qt6/QtNetwork/qtnetwork-config.h \
 	C:/msys64/ucrt64/include/qt6/QtNetwork/qtnetworkexports.h \
 	C:/msys64/ucrt64/include/qt6/QtNetwork/qtnetworkglobal.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/QComboBox \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/QLabel \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/QMainWindow \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/QPushButton \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/QSlider \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/QWidget \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractbutton.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractitemdelegate.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractslider.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qabstractspinbox.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qcombobox.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qframe.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qlabel.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qmainwindow.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qpushbutton.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qrubberband.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qsizepolicy.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qslider.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qstyle.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qstyleoption.h \
-	C:/msys64/ucrt64/include/qt6/QtWidgets/qtabbar.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qtabwidget.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qtwidgets-config.h \
 	C:/msys64/ucrt64/include/qt6/QtWidgets/qtwidgetsexports.h \
